@@ -10,13 +10,14 @@ char logData[NUM_SENSOR];
 uint8_t num[NUM_SENSOR];
 
 void range_sensor(void *sensor_id_p) {
-  uint8_t sensor_id = *(uint8_t *)sensor_id_p;
-  while (true) {
-    range[sensor_id] = sensor[sensor_id].readRangeSingle();
-    if (sensor[sensor_id].readRangeStatus() > 6)
-      range[sensor_id] = 255;
-    vTaskDelay(1 / portTICK_PERIOD_MS);
-  }
+  // uint8_t sensor_id = *(uint8_t *)sensor_id_p;
+  while (true)
+    for (uint8_t sensor_id = 0; sensor_id < NUM_SENSOR; sensor_id++) {
+      range[sensor_id] = sensor[sensor_id].readRangeSingle();
+      if (sensor[sensor_id].readRangeStatus() > 6)
+        range[sensor_id] = 255;
+      vTaskDelay(1 / portTICK_PERIOD_MS);
+    }
 }
 
 void setup() {
@@ -29,7 +30,7 @@ void setup() {
   Serial.begin(115200);
   Wire.begin();
 
-  //センサーのアドレスの書き換え
+  //1つ目のセンサーのアドレスの書き換え
   for (uint8_t i = 0; i < NUM_SENSOR; i++) {
     digitalWrite(pin[i], HIGH);
     delay(100);
@@ -38,8 +39,8 @@ void setup() {
     sensor[i].setAddress(0x30 + i);  //好きなアドレスに設定
     // digitalWrite(pin[i], LOW);
     num[i] = i;
-    xTaskCreate(range_sensor, "range_sensor", 2048, (void *)&num[i], 1, NULL);
   }
+  xTaskCreate(range_sensor, "range_sensor", 2048, NULL, 1, NULL);
 }
 
 void loop() {
