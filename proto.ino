@@ -5,17 +5,22 @@
 
 uint8_t range[NUM_SENSOR];
 VL6180X sensor[NUM_SENSOR];
-int pin[NUM_SENSOR] = { 4, 5, 12, 13, 14, 15, 16, 17, 18, 19 };
+uint8_t pin[NUM_SENSOR] = { 4, 5, 12, 13, 14, 15, 16, 17, 18, 19 };
 char logData[NUM_SENSOR];
-// void range_sensor(uint8_t sensor_id) {
-//   while(true){
-//     v
-//   }
+uint8_t num[NUM_SENSOR];
 
-// }
+void range_sensor(void *sensor_id_p) {
+  uint8_t sensor_id = *(uint8_t *)sensor_id_p;
+  while (true) {
+    range[sensor_id] = sensor[sensor_id].readRangeSingle();
+    if (sensor[sensor_id].readRangeStatus() > 6)
+      range[sensor_id] = 255;
+    vTaskDelay(1 / portTICK_PERIOD_MS);
+  }
+}
 
 void setup() {
-  for (int i = 0; i < NUM_SENSOR; i++) {
+  for (uint8_t i = 0; i < NUM_SENSOR; i++) {
     pinMode(pin[i], OUTPUT);
     digitalWrite(pin[i], LOW);
   }
@@ -24,30 +29,32 @@ void setup() {
   Serial.begin(115200);
   Wire.begin();
 
-  //1つ目のセンサーのアドレスの書き換え
-  for (int i = 0; i < NUM_SENSOR; i++) {
+  //センサーのアドレスの書き換え
+  for (uint8_t i = 0; i < NUM_SENSOR; i++) {
     digitalWrite(pin[i], HIGH);
     delay(100);
     sensor[i].init();
     sensor[i].configureDefault();
     sensor[i].setAddress(0x30 + i);  //好きなアドレスに設定
     // digitalWrite(pin[i], LOW);
+    num[i] = i;
+    xTaskCreate(range_sensor, "range_sensor", 2048, (void *)&num[i], 1, NULL);
   }
 }
 
 void loop() {
-  unsigned long interval, startTime, endTime;
+  // unsigned long interval, startTime, endTime;
   // interval = 0;
   // startTime = millis();
-  for (int i = 0; i < NUM_SENSOR; i++) {
+  for (uint8_t i = 0; i < NUM_SENSOR; i++) {
     // if (sensor[i].readRangeStatus() < 6) {
     //   range[i] = sensor[i].readRangeSingle();
     //   Serial.printf("%03d ", range[i]);
     // } else
     //   Serial.print("OoR ");
 
-    range[i] = sensor[i].readRangeSingle();
-    if (sensor[i].readRangeStatus() < 6)
+
+    if (range[i] != 255)
       Serial.printf("%03d ", range[i]);
     else
       Serial.print("OoR ");
