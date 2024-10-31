@@ -2,6 +2,9 @@
 #include <VL6180X.h>
 
 #define NUM_SENSOR 10
+#define HEAD_SENSOR 0
+#define TAIL_SENSOR 9
+
 
 uint8_t range[NUM_SENSOR];
 VL6180X sensor[NUM_SENSOR];
@@ -12,16 +15,18 @@ uint8_t num[NUM_SENSOR];
 void range_sensor(void *sensor_id_p) {
   // uint8_t sensor_id = *(uint8_t *)sensor_id_p;
   while (true)
-    for (uint8_t sensor_id = 0; sensor_id < NUM_SENSOR; sensor_id++) {
-      range[sensor_id] = sensor[sensor_id].readRangeSingle();
-      if (sensor[sensor_id].readRangeStatus() > 6)
-        range[sensor_id] = 255;
-      vTaskDelay(1 / portTICK_PERIOD_MS);
+    for (uint8_t sensor_id = HEAD_SENSOR; sensor_id <= TAIL_SENSOR; sensor_id++) {
+      if (true) {
+        range[sensor_id] = sensor[sensor_id].readRangeSingle();
+        if (sensor[sensor_id].readRangeStatus() > 6)
+          range[sensor_id] = 255;
+        vTaskDelay(1 / portTICK_PERIOD_MS);
+      }
     }
 }
 
 void setup() {
-  for (uint8_t i = 0; i < NUM_SENSOR; i++) {
+  for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++) {
     pinMode(pin[i], OUTPUT);
     digitalWrite(pin[i], LOW);
   }
@@ -31,12 +36,13 @@ void setup() {
   Wire.begin();
 
   //1つ目のセンサーのアドレスの書き換え
-  for (uint8_t i = 0; i < NUM_SENSOR; i++) {
+  for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++) {
     digitalWrite(pin[i], HIGH);
     delay(100);
     sensor[i].init();
     sensor[i].configureDefault();
     sensor[i].setAddress(0x30 + i);  //好きなアドレスに設定
+    sensor[i].setTimeout(20);
     // digitalWrite(pin[i], LOW);
     num[i] = i;
   }
@@ -47,18 +53,19 @@ void loop() {
   // unsigned long interval, startTime, endTime;
   // interval = 0;
   // startTime = millis();
-  for (uint8_t i = 0; i < NUM_SENSOR; i++) {
+  for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++) {
     // if (sensor[i].readRangeStatus() < 6) {
     //   range[i] = sensor[i].readRangeSingle();
     //   Serial.printf("%03d ", range[i]);
     // } else
     //   Serial.print("OoR ");
 
-
-    if (range[i] != 255)
-      Serial.printf("%03d ", range[i]);
-    else
-      Serial.print("OoR ");
+    if (true) {
+      if (range[i] != 255)
+        Serial.printf("%03d ", range[i]);
+      else
+        Serial.print("OoR ");
+    }
   }
   Serial.println();
   // endTime = millis();
