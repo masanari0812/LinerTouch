@@ -1,12 +1,12 @@
 #include <Wire.h>
 #include <VL6180X.h>
 
-#define NUM_SENSOR 1
+#define NUM_SENSOR 10
 
 uint8_t range;
 VL6180X sensor[NUM_SENSOR];
-int pin[4] = { 32, 33, 25, 26 };
-char logData[4];
+int pin[NUM_SENSOR] = { 4, 5, 12, 13, 14 , 15, 16, 17, 18, 19};
+char logData[NUM_SENSOR];
 void setup() {
   for (int i = 0; i < NUM_SENSOR; i++) {
     pinMode(pin[i], OUTPUT);
