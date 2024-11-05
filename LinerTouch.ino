@@ -21,7 +21,7 @@ void range_sensor(void *sensor_id_p) {
       range[sensor_id] = sensor[sensor_id].readRangeSingle();
       if (sensor[sensor_id].readRangeStatus() > 6)
         range[sensor_id] = 255;
-      vTaskDelay(1 / portTICK_PERIOD_MS);
+      vTaskDelay(3 / portTICK_PERIOD_MS);
     }
 }
 void calibrate_offset() {
