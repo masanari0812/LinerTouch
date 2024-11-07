@@ -4,7 +4,7 @@
 #define NUM_SENSOR 10
 #define HEAD_SENSOR 0
 #define TAIL_SENSOR 9
-#define CALIBRATE_TIMES 20
+#define CALIBRATE_TIMES 30
 #define TARGET_DISTANCE 50
 #define SYSRANGE__PART_TO_PART_RANGE_OFFSET 0x024
 
@@ -21,9 +21,9 @@ void range_sensor(void *sensor_id_p) {
       range[sensor_id] = sensor[sensor_id].readRangeSingle();
       if (sensor[sensor_id].readRangeStatus() > 6)
         range[sensor_id] = 255;
-      vTaskDelay(3 / portTICK_PERIOD_MS);
     }
 }
+
 void calibrate_offset() {
   disableWAF();
   disableRangeIgnore();
@@ -44,18 +44,18 @@ void calibrate_offset() {
 }
 
 void disableWAF() {
+  Serial.println("WAF disabled");
   for (uint8_t sensor_id = HEAD_SENSOR; sensor_id <= TAIL_SENSOR; sensor_id++) {
 
     writeRegister(sensor_id, 0x001A, 0);  // WAFを無効化
-    Serial.println("WAF disabled");
   }
 }
 
 void disableRangeIgnore() {
+  Serial.println("Range Ignore disabled");
   for (uint8_t sensor_id = HEAD_SENSOR; sensor_id <= TAIL_SENSOR; sensor_id++) {
 
     writeRegister(sensor_id, 0x002E, 0);  // 範囲無視機能を無効化
-    Serial.println("Range Ignore disabled");
   }
 }
 
