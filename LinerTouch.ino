@@ -1,3 +1,23 @@
+/* この例では、インターリーブ・モードを使用して、連続レンジ測定と環境光測定を行う方法を示します。
+データシートでは "レンジと ALS の連続モードを同時に（つまり非同期に）"実行する代わりに
+インターリーブモードを使うことを推奨しています。
+
+より高速な更新レート（10Hz）を達成するために、測距の最大収束時間と環境光測定の積分時間は、
+通常推奨されるデフォルト値よりも短縮されています。 詳細については、
+VL6180X データシートの「連続モードの制限」のセクションと
+「インターリーブ・モードの制限（10 Hz 動作）」の表を参照してください。
+
+生の環境光測定値は、データシートの「ALSカウントからルクスへの変換」セクションの式を使用して
+ルクス単位に変換することができます。
+
+例 VL6180Xは、このスケッチで設定されたように、
+デフォルトのゲイン1、積分周期50ms（configureDefault()で設定された100msから減少）で
+613の周囲光の読み取り値を示します。 
+工場出荷時に較正された0.32ルクス/カウントの分解能では、
+光量は(0.32 * 613 * 100) / (1 * 50)または392ルクスです。
+
+レンジの読みはmm単位。 */
+
 #include <Wire.h>
 #include <VL6180X.h>
 
@@ -6,125 +26,82 @@
 #define TAIL_SENSOR 9
 #define CALIBRATE_TIMES 30
 #define TARGET_DISTANCE 50
-#define SYSRANGE__PART_TO_PART_RANGE_OFFSET 0x024
+#define HEAD_I2C_ADDRESS 0x30
 
 uint8_t range[NUM_SENSOR];
+uint8_t ambient[NUM_SENSOR];
 VL6180X sensor[NUM_SENSOR];
 uint8_t pin[NUM_SENSOR] = { 4, 5, 12, 13, 14, 15, 16, 17, 18, 19 };
-char logData[NUM_SENSOR];
 uint8_t num[NUM_SENSOR];
 
-// 指定されたセンサの測距
-void range_sensor(void *sensor_id_p) {
-  uint8_t sensor_id = *(uint8_t *)sensor_id_p;
-  while (true) {
-    range[sensor_id] = sensor[sensor_id].readRangeSingle();
-    if (sensor[sensor_id].readRangeStatus() > 6)
-      range[sensor_id] = 255;
-  }
-}
-// すべてのセンサの測距
-void p_range_sensor(void *sensor_id_p) {
-  while (true)
-    for (uint8_t sensor_id = HEAD_SENSOR; sensor_id <= TAIL_SENSOR; sensor_id++) {
-      range[sensor_id] = sensor[sensor_id].readRangeSingle();
-      if (sensor[sensor_id].readRangeStatus() > 6)
-        range[sensor_id] = 255;
-    }
-}
 
-
-// 測距のキャリブレーション
-void calibrate_offset(uint8_t sensor_id) {
-  disableWAF(sensor_id);
-  disableRangeIgnore(sensor_id);
-  sensor[sensor_id].writeReg(SYSRANGE__PART_TO_PART_RANGE_OFFSET, 0x00);
-  delay(10);
-  // センサによる複数回の測定処理とその値の平均値の差分が補正値になる
-  uint32_t sum = 0;
-  for (uint8_t i = 0; i < CALIBRATE_TIMES; i++)
-    sum += sensor[sensor_id].readRangeSingle();
-  uint8_t ave = sum / CALIBRATE_TIMES;
-  uint8_t offset = TARGET_DISTANCE - ave;
-  sensor[sensor_id].writeReg(SYSRANGE__PART_TO_PART_RANGE_OFFSET, offset);
-  Serial.printf("Sensor %2u: offset->%03u \n", sensor_id, offset);
-  delay(10);
-}
-
-void disableWAF(uint8_t sensor_id) {
-  Serial.printf("Sensor %2u: WAF disabled\n", sensor_id);
-  writeRegister(sensor_id, 0x001A, 0);  // WAFを無効化
-}
-
-void disableRangeIgnore(uint8_t sensor_id) {
-  Serial.printf("Sensor %2u: Range Ignore disabled\n", sensor_id);
-  writeRegister(sensor_id, 0x002E, 0);  // 範囲無視機能を無効化
-}
-
-// VL6180Xのセンサの内部メモリデータ書き換え処理
-void writeRegister(uint8_t sensor_id, uint16_t reg, uint8_t value) {
-  Wire.beginTransmission(0x30 + sensor_id);
-  Wire.write((reg >> 8) & 0xFF);  // 上位バイト
-  Wire.write(reg & 0xFF);         // 下位バイト
-  Wire.write(value);
-  Wire.endTransmission();
-  delay(10);
-}
 
 void setup() {
+  Serial.begin(115200);
+  Wire.begin();
+  // すでにアクティブな場合は、連続モードを停止する
   for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++) {
     pinMode(pin[i], OUTPUT);
     digitalWrite(pin[i], LOW);
-  }
-  delay(50);
-
-  Serial.begin(115200);
-  Wire.begin();
-
-  //1つ目のセンサーのアドレスの書き換え
-  for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++) {
     digitalWrite(pin[i], HIGH);
-    delay(10);
+    delay(50);
+
     sensor[i].init();
     sensor[i].configureDefault();
-    sensor[i].setAddress(0x30 + i);  //好きなアドレスに設定
-    sensor[i].setTimeout(20);
-    // digitalWrite(pin[i], LOW);
-    num[i] = i;
-    calibrate_offset(i);
-    // xTaskCreate(range_sensor, "range_sensor", 2048, (void *)&num[i], 1, NULL);
-    // sensor[sensor_id].startContinuous(interval)
+    sensor[i].setAddress(HEAD_I2C_ADDRESS + i);  //好きなアドレスに設定
+    delay(10);
+    sensor[i].stopContinuous();
   }
+
+
+  for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++) {
+    // WAFを無効化
+    // sensor[i].writeReg(0x2D, 0x00);
+    // Range Ignoreを無効化
+    // sensor[i].writeReg(0x60, 0x00);
+    sensor[i].writeReg(VL6180X::SYSRANGE__PART_TO_PART_RANGE_OFFSET, 0x00);
+    delay(10);
+    uint32_t sum = 0;
+    for (uint8_t j = 0; j < CALIBRATE_TIMES; j++)
+      sum += sensor[i].readRangeSingle();
+    uint8_t ave = sum / CALIBRATE_TIMES;
+    uint8_t offset = TARGET_DISTANCE - ave;
+    sensor[i].writeReg(VL6180X::SYSRANGE__PART_TO_PART_RANGE_OFFSET, offset);
+    Serial.printf("Sensor %2u: offset->%03u \n", i, offset);
+    delay(10);
+
+
+    // レンジの最大収束時間と ALS の積分時間をそれぞれ 30 ms と 50 ms に短縮し、10 Hz
+    // 動作を可能にする（データシートの表「インターリーブモードの制限（10 Hz 動作）」で示唆されている通り）。
+    sensor[i].writeReg(VL6180X::SYSRANGE__MAX_CONVERGENCE_TIME, 30);
+    sensor[i].writeReg16Bit(VL6180X::SYSALS__INTEGRATION_PERIOD, 50);
+
+    sensor[i].setTimeout(500);
+
+
+    // stopContinuous() がシングルショット測定をトリガした場合は、
+    // 測定が完了するまで待つ。
+    delay(300);
+  }
+  // 100ミリ秒周期のインターリーブ連続モード開始
   for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++)
-    // xTaskCreate(range_sensor, "range_sensor", 2048, (void *)&num[i], 1, NULL);
-    sensor[i].startRangeContinuous(20);
-
-
-  // xTaskCreate(p_range_sensor, "p_range_sensor", 2048, NULL, 1, NULL);
+    sensor[i].startInterleavedContinuous(100);
 }
 
-
-
 void loop() {
-  // unsigned long interval, startTime, endTime;
-  // interval = 0;
-  // startTime = millis();
   for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++) {
-    // if (sensor[i].readRangeStatus() < 6) {
-    //   range[i] = sensor[i].readRangeSingle();
-    //   Serial.printf("%03u ", range[i]);
-    // } else
-    //   Serial.print("OoR ");
-    range[i] = sensor[i].readRangeContinuous();
-    if (true) {
-      if (range[i] != 255)
-        Serial.printf("%03u ", range[i]);
-      else
-        Serial.print("OoR ");
+
+    ambient[i] = sensor[i].readAmbientContinuous();
+    range[i] = sensor[i].readRangeContinuousMillimeters();
+    if (range[i] != 255)
+      Serial.printf("%3u ", range[i]);
+    else
+      Serial.print("OoR ");
+    if (sensor[i].timeoutOccurred()) {
+      Serial.printf("Sensor %2u: TIMEOUT\n", i);
+      while (true)
+        ;
     }
   }
   Serial.println();
-  // endTime = millis();
-  // if (interval > endTime - startTime)
-  //   delay(interval - (endTime - startTime));
 }
