@@ -40,7 +40,7 @@ void setup() {
   Serial.begin(115200);
   Wire.begin();
   // すでにアクティブな場合は、連続モードを停止する
-  for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++) {
+  for (uint8_t i = 0; i < NUM_SENSOR; i++) {
     pinMode(pin[i], OUTPUT);
     digitalWrite(pin[i], LOW);
     digitalWrite(pin[i], HIGH);
