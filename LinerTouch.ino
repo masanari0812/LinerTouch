@@ -95,10 +95,12 @@ void setup() {
     // xTaskCreate(range_sensor, "range_sensor", 2048, (void *)&num[i], 1, NULL);
     // sensor[sensor_id].startContinuous(interval)
   }
-  // for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++)
-  //   xTaskCreate(range_sensor, "range_sensor", 2048, (void *)&num[i], 1, NULL);
+  for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++)
+    // xTaskCreate(range_sensor, "range_sensor", 2048, (void *)&num[i], 1, NULL);
+    sensor[i].startRangeContinuous(20);
 
-  xTaskCreate(p_range_sensor, "p_range_sensor", 2048, NULL, 1, NULL);
+
+  // xTaskCreate(p_range_sensor, "p_range_sensor", 2048, NULL, 1, NULL);
 }
 
 
@@ -113,7 +115,7 @@ void loop() {
     //   Serial.printf("%03u ", range[i]);
     // } else
     //   Serial.print("OoR ");
-
+    range[i] = sensor[i].readRangeContinuous();
     if (true) {
       if (range[i] != 255)
         Serial.printf("%03u ", range[i]);
