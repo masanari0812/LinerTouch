@@ -25,7 +25,7 @@ class LinerCanvas(tk.Tk):  # tk.Tk を継承
         )
         self.canvas.pack()
         self.liner.update_callback = self.rend_loop
-        self.liner.click_callback = self.draw_click_point
+        self.liner.tap_callback = self.draw_tap_point
     def rend_loop(self):
         if keyboard.is_pressed("shift"):
             self.canvas.delete("all")
@@ -52,7 +52,7 @@ class LinerCanvas(tk.Tk):  # tk.Tk を継承
 
     # 指定された位置 (x, y) に目印の点を描画
     def draw_point(self, color="red", size=3):
-        next_pos = self.liner.past_data[0]
+        next_pos = self.liner.next_pos
         x = next_pos[0] * self.x_rate
         y = next_pos[1] * self.y_rate
         self.canvas.create_oval(
@@ -60,8 +60,8 @@ class LinerCanvas(tk.Tk):  # tk.Tk を継承
         )
 
     # 指定された位置 (x, y) にクリック目印の点を描画
-    def draw_click_point(self, color="blue", size=10):
-        next_pos = self.liner.past_data[0]
+    def draw_tap_point(self, color="blue", size=10):
+        next_pos = self.liner.release_pos
         x = next_pos[0] * self.x_rate
         y = next_pos[1] * self.y_rate
         self.canvas.create_oval(
