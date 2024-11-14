@@ -16,8 +16,9 @@ class LinerTouch:
         # LinerTouch が準備できたかを示す
         self.ready = False
         self.ser = serial.Serial("COM9", 115200)
-        self.next_pos = [0, 0]
 
+        self.latest_pos = [0, 0]
+        self.estimated_pos = [0, 0]
         # センサーの数
         self.sensor_num = 10
 
@@ -35,8 +36,8 @@ class LinerTouch:
         self.width_convergence_rate = 0.7
 
         # 初期値を設定
-        for _ in range(self.past_data_num):
-            self.past_data.append([(self.sensor_num - 1) / 2, 50])
+        # for _ in range(self.past_data_num):
+        #     self.past_data.append([(self.sensor_num - 1) / 2, 50])
 
         self.update_callback = update_callback
         self.tap_callback = tap_callback
@@ -72,20 +73,21 @@ class LinerTouch:
 
                     # y軸側
                     # センサーの数値が最も小さいものを選択
-                    y_pos = min([data[1] for data in self.range_data])
-                    self.next_pos[1] = y_pos
+                    self.latest_pos[1] = min([data[1] for data in self.range_data])
 
                     # x軸側
                     # 閾値以上のデータを除いたセンサーのインデックスの平均を選択
-                    x_pos = np.mean(
+                    self.latest_pos[0] = np.mean(
                         [
                             data[0]
                             for data in self.range_data
-                            if data[1] - y_pos < self.height_threshold
+                            if data[1] - self.latest_pos[1] < self.height_threshold
                         ]
                     )
-                    self.next_pos[0] = x_pos
-
+                    if self.ready:
+                        self.prev_pos = self.past_data[0]
+                    self.past_data.appendleft(self.latest_pos.copy())
+                    self.estimated_pos = self.latest_pos
                     # 指数移動平均の計算
                     # if self.ready:
                     #     x_data = [data[0] for data in self.past_data]
@@ -96,7 +98,9 @@ class LinerTouch:
                     #     weighted_average = data_series.ewm(alpha=alpha).mean()
                     #     self.next_pos[0] = weighted_average.iloc[-1]
 
-                    logger.info(f"x: {self.next_pos[0]:.1f}, y: {self.next_pos[1]:.1f}")
+                    logger.info(
+                        f"x: {self.latest_pos[0]:.1f}, y: {self.latest_pos[1]:.1f}"
+                    )
 
                     # 指のタッチ検知
                     if self.ready:
@@ -110,21 +114,23 @@ class LinerTouch:
                         #         self.tap_flag = False
                         # 指が離れた場合
                         if (
-                            self.next_pos[1] - self.prev_pos[1] > self.height_threshold
+                            self.latest_pos[1] - self.prev_pos[1]
+                            > self.height_threshold
                             and self.tap_flag == False
                         ):
                             release_start_time = time.time()
                             self.tap_flag = True
                             # タッチ予定の座標を記録
-                            self.release_pos = self.prev_pos
+                            self.release_pos = self.prev_pos.copy()
 
                         # タップのフラグがある場合
                         if self.tap_flag == True:
-                            self.next_pos = self.release_pos
+                            # 指が押されていない場合離した際の座標release_posを利用
+                            self.estimated_pos = self.release_pos.copy()
 
                             # 指が押された場合
                             if (
-                                self.prev_pos[1] - self.next_pos[1]
+                                self.prev_pos[1] - self.latest_pos[1]
                                 > self.height_threshold
                             ):
 
@@ -132,10 +138,10 @@ class LinerTouch:
                                 release_elapsed_time = (
                                     release_end_time - release_start_time
                                 )
-                                if release_elapsed_time < self.release_threshold:
+                                if release_elapsed_time <= self.release_threshold:
+                                    self.tap_flag = False
                                     if self.tap_callback:
                                         self.tap_callback()
-                            # 指が押されていない場合離した際の座標release_posを利用
                             else:
                                 # タッチ時間の閾値を超えた場合フラグをオフにする処理
                                 if (
@@ -153,9 +159,7 @@ class LinerTouch:
                     # LinerTouch が準備できたことを示す
                     self.ready = True
                     # データを保存
-                    self.past_data.append(self.next_pos)
 
-                    self.prev_pos = self.next_pos.copy()
                 # データがない場合
                 else:
                     pass

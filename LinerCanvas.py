@@ -30,47 +30,47 @@ class LinerCanvas(tk.Tk):  # tk.Tk を継承
     def rend_loop(self):
         if keyboard.is_pressed("shift"):
             self.canvas.delete("all")
-        self.erace_point()
+        # self.erace_point()
         self.draw_point()
-        self.draw_line()
+        # self.draw_line()
 
     def draw_line(self):
         if keyboard.is_pressed("z"):
             logger.debug(
-                f"prev_pos: {self.liner.past_data[1]}, next_pos: {self.liner.next_pos}"
+                f"prev_pos: {self.liner.prev_pos}, estimated_pos: {self.liner.estimated_pos}"
             )
 
-            prev_pos = self.liner.past_data[1]
-            next_pos = self.liner.past_data[0]
+            prev_pos = self.liner.prev_pos
+            estimated_pos = self.liner.estimated_pos
             self.canvas.create_line(
                 prev_pos[0] * self.x_rate,
                 prev_pos[1] * self.y_rate,
-                next_pos[0] * self.x_rate,
-                next_pos[1] * self.y_rate,
+                estimated_pos[0] * self.x_rate,
+                estimated_pos[1] * self.y_rate,
                 fill="blue",
                 width=5,
             )
 
     # 指定された位置 (x, y) に目印の点を描画
     def draw_point(self, color="red", size=3):
-        next_pos = self.liner.next_pos
-        x = next_pos[0] * self.x_rate
-        y = next_pos[1] * self.y_rate
+        estimated_pos = self.liner.estimated_pos
+        x = estimated_pos[0] * self.x_rate
+        y = estimated_pos[1] * self.y_rate
         self.canvas.create_oval(
             x - size, y - size, x + size, y + size, fill=color, outline=color
         )
 
     # 指定された位置 (x, y) にクリック目印の点を描画
     def draw_tap_point(self, color="blue", size=10):
-        next_pos = self.liner.release_pos
-        x = next_pos[0] * self.x_rate
-        y = next_pos[1] * self.y_rate
+        estimated_pos = self.liner.estimated_pos
+        x = estimated_pos[0] * self.x_rate
+        y = estimated_pos[1] * self.y_rate
         self.canvas.create_oval(
             x - size, y - size, x + size, y + size, fill=color, outline=color
         )
 
     def erace_point(self, color="white", size=3):
-        prev_pos = self.liner.past_data[1]
+        prev_pos = self.liner.prev_pos
         x = prev_pos[0] * self.x_rate
         y = prev_pos[1] * self.y_rate
         self.canvas.create_oval(

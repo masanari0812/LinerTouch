@@ -11,11 +11,12 @@ class KanaKey(tk.Tk):
         self.title("50音キーボード")
 
         # 入力用エントリー
-        self.entry = tk.Entry(self, width=40, font=("Arial", 20))
-        self.entry.grid(row=0, column=0, columnspan=10)
+
         self.cursor_x = 0
         self.cursor_y = 0
-        self.liner = LinerTouch(self.update_cursor, self.tap_cursor)
+        self.liner = LinerTouch()
+        self.liner.update_callback = self.update_cursor
+        self.liner.tap_callback = self.tap_cursor
 
         # 50音キーボード配列
         self.kana_keys = [
@@ -31,6 +32,8 @@ class KanaKey(tk.Tk):
             ["わ", "　", "を", "　", "ん"],
         ]
         self.kana_keys = [list(row) for row in zip(*self.kana_keys)]
+        self.entry = tk.Entry(self, width=40, font=("Arial", 20))
+        self.entry.grid(row=+5, column=0, columnspan=10)
         # キーボードボタンを作成
         for i, row in enumerate(self.kana_keys):
             for j, kana in enumerate(row):
@@ -43,7 +46,7 @@ class KanaKey(tk.Tk):
                         font=("Arial", 20),
                         command=lambda k=kana: self.insert_kana(k),
                     )
-                    button.grid(row=i + 1, column=j, padx=5, pady=5)
+                    button.grid(row=i, column=j, padx=0, pady=0)
 
     def update_cursor(self):
         x_rate = self.winfo_width() / self.liner.sensor_num
@@ -51,19 +54,23 @@ class KanaKey(tk.Tk):
         self.event_generate(
             "<Motion>",
             warp=True,
-            x=self.liner.next_pos[0] * x_rate + 25,
-            y=self.liner.next_pos[1] * y_rate,
+            x=self.liner.estimated_pos[0] * x_rate + 25,
+            y=self.liner.estimated_pos[1] * y_rate,
         )
 
     def tap_cursor(self):
-        x_rate = self.winfo_width() / self.liner.sensor_num
-        y_rate = self.winfo_height() / self.liner.sensor_height
-        self.event_generate(
-            "<ButtonPress>",
-            warp=True,
-            x=self.liner.release_pos[0] * x_rate + 25,
-            y=self.liner.release_pos[1] * y_rate,
-        )
+
+        button = self.grid_slaves(row=1, column=0)[0]
+        button_width = button.winfo_width()
+        button_height = button.winfo_height()
+        mouse_x, mouse_y = self.winfo_pointerxy()
+        mouse_x -= self.winfo_rootx()
+        mouse_y -= self.winfo_rooty()
+        x_button = int(mouse_x / button_width)
+        y_button = int(mouse_y / button_height)
+        kana = self.kana_keys[y_button][x_button]
+        if kana:
+            self.insert_kana(kana)
 
     def insert_kana(self, kana):
         # エントリーに選択した文字を挿入
