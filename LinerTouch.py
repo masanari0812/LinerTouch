@@ -87,16 +87,16 @@ class LinerTouch:
                     if self.ready:
                         self.prev_pos = self.past_data[0]
                     self.past_data.appendleft(self.latest_pos.copy())
-                    self.estimated_pos = self.latest_pos
+                    self.estimated_pos = self.latest_pos.copy()
                     # 指数移動平均の計算
-                    # if self.ready:
-                    #     x_data = [data[0] for data in self.past_data]
-                    #     data_series = pd.Series(x_data)
-                    #     # 指数移動平均の計算
-                    #     # 最新データにどのくらい重みをかけるかを決めるパラメータ
-                    #     alpha = 0.1
-                    #     weighted_average = data_series.ewm(alpha=alpha).mean()
-                    #     self.next_pos[0] = weighted_average.iloc[-1]
+                    if self.ready:
+                        x_data = [data[0] for data in self.past_data]
+                        data_series = pd.Series(x_data)
+                        # 指数移動平均の計算
+                        # 最新データにどのくらい重みをかけるかを決めるパラメータ
+                        alpha = 0.9
+                        weighted_average = data_series.ewm(alpha=alpha).mean()
+                        self.estimated_pos[0] = weighted_average.iloc[-1]
 
                     logger.info(
                         f"x: {self.latest_pos[0]:.1f}, y: {self.latest_pos[1]:.1f}"
