@@ -61,8 +61,8 @@ class KanaKey(tk.Tk):
         self.event_generate(
             "<ButtonPress>",
             warp=True,
-            x=self.liner.next_pos[0] * x_rate + 25,
-            y=self.liner.next_pos[1] * y_rate,
+            x=self.liner.release_pos[0] * x_rate + 25,
+            y=self.liner.release_pos[1] * y_rate,
         )
 
     def insert_kana(self, kana):

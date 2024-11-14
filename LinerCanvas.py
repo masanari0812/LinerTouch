@@ -26,6 +26,7 @@ class LinerCanvas(tk.Tk):  # tk.Tk を継承
         self.canvas.pack()
         self.liner.update_callback = self.rend_loop
         self.liner.tap_callback = self.draw_tap_point
+
     def rend_loop(self):
         if keyboard.is_pressed("shift"):
             self.canvas.delete("all")
