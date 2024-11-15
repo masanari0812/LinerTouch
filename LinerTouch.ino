@@ -20,6 +20,7 @@ VL6180X データシートの「連続モードの制限」のセクションと
 
 #include <Wire.h>
 #include <VL6180X.h>
+#include "BluetoothSerial.h"
 
 #define NUM_SENSOR 10
 #define HEAD_SENSOR 0
@@ -27,7 +28,7 @@ VL6180X データシートの「連続モードの制限」のセクションと
 #define CALIBRATE_TIMES 30
 #define TARGET_DISTANCE 50
 #define HEAD_I2C_ADDRESS 0x30
-#define CALIBRATE_MODE false
+#define CALIBRATE_MODE true
 
 uint8_t range[NUM_SENSOR];
 uint8_t ambient[NUM_SENSOR];

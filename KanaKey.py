@@ -41,8 +41,8 @@ class KanaKey(tk.Tk):
                     button = tk.Button(
                         self,
                         text=kana,
-                        width=4,
-                        height=1,
+                        width=10,
+                        height=5,
                         font=("Arial", 20),
                         command=lambda k=kana: self.insert_kana(k),
                     )
