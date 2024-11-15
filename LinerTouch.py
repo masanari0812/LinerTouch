@@ -28,7 +28,7 @@ class LinerTouch:
         # 指のタッチ時間の閾値
         self.release_threshold = 1
         # 保存するデータの数
-        self.past_data_num = 30
+        self.past_data_num = 20
         self.past_data = deque(maxlen=self.past_data_num)
         # タップフラグ
         self.tap_flag = False
@@ -74,7 +74,13 @@ class LinerTouch:
                     # y軸側
                     # センサーの数値が最も小さいものを選択
                     self.latest_pos[1] = min([data[1] for data in self.range_data])
-
+                    self.latest_pos[1] = np.mean(
+                        [
+                            data[1]
+                            for data in self.range_data
+                            if data[1] - self.latest_pos[1] < self.height_threshold
+                        ]
+                    )
                     # x軸側
                     # 閾値以上のデータを除いたセンサーのインデックスの平均を選択
                     self.latest_pos[0] = np.mean(
@@ -89,18 +95,18 @@ class LinerTouch:
                     self.past_data.appendleft(self.latest_pos.copy())
                     self.estimated_pos = self.latest_pos.copy()
                     # 指数移動平均の計算
-                    if self.ready:
-                        x_data = [data[0] for data in self.past_data]
-                        data_series = pd.Series(x_data)
-                        # 指数移動平均の計算
-                        # 最新データにどのくらい重みをかけるかを決めるパラメータ
-                        alpha = 0.9
-                        weighted_average = data_series.ewm(alpha=alpha).mean()
-                        self.estimated_pos[0] = weighted_average.iloc[-1]
+                    # if self.ready:
+                    #     x_data = [data[0] for data in self.past_data]
+                    #     data_series = pd.Series(x_data)
+                    #     # 指数移動平均の計算
+                    #     # 最新データにどのくらい重みをかけるかを決めるパラメータ
+                    #     alpha = 0.9
+                    #     weighted_average = data_series.ewm(alpha=alpha).mean()
+                    #     self.estimated_pos[0] = weighted_average.iloc[-1]
 
-                    logger.info(
-                        f"x: {self.latest_pos[0]:.1f}, y: {self.latest_pos[1]:.1f}"
-                    )
+                    # 移動平均の計算
+                    if self.ready:
+                        self.estimated_pos = np.mean(self.past_data, axis=0)
 
                     # 指のタッチ検知
                     if self.ready:
@@ -121,7 +127,7 @@ class LinerTouch:
                             release_start_time = time.time()
                             self.tap_flag = True
                             # タッチ予定の座標を記録
-                            self.release_pos = self.prev_pos.copy()
+                            self.release_pos = self.estimated_pos.copy()
 
                         # タップのフラグがある場合
                         if self.tap_flag == True:
@@ -150,7 +156,7 @@ class LinerTouch:
                                 ):
                                     self.tap_flag = False
                                 # 指が押されていない間は最後に離した際の座標release_posを利用
-                        logger.info(f"tap_flag: {self.tap_flag}")
+                        logger.debug(f"tap_flag: {self.tap_flag}")
 
                     # 更新コールバック
                     if self.update_callback:

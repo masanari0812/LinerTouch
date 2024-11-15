@@ -27,14 +27,14 @@ VL6180X データシートの「連続モードの制限」のセクションと
 #define CALIBRATE_TIMES 30
 #define TARGET_DISTANCE 50
 #define HEAD_I2C_ADDRESS 0x30
+#define CALIBRATE_MODE false
 
 uint8_t range[NUM_SENSOR];
 uint8_t ambient[NUM_SENSOR];
 VL6180X sensor[NUM_SENSOR];
 uint8_t pin[NUM_SENSOR] = { 4, 5, 12, 13, 14, 15, 16, 17, 18, 19 };
 uint8_t num[NUM_SENSOR];
-
-
+uint8_t offset_range[NUM_SENSOR] = { 10, 14, 19, 11, 247, 5, 23, 10, 11, 7 };
 
 void setup() {
   Serial.begin(115200);
@@ -44,7 +44,7 @@ void setup() {
     pinMode(pin[i], OUTPUT);
     digitalWrite(pin[i], LOW);
     digitalWrite(pin[i], HIGH);
-    delay(50);
+    delay(10);
 
     sensor[i].init();
     sensor[i].configureDefault();
@@ -59,17 +59,21 @@ void setup() {
     // sensor[i].writeReg(0x2D, 0x00);
     // Range Ignoreを無効化
     // sensor[i].writeReg(0x60, 0x00);
-    sensor[i].writeReg(VL6180X::SYSRANGE__PART_TO_PART_RANGE_OFFSET, 0x00);
-    delay(10);
-    uint32_t sum = 0;
-    for (uint8_t j = 0; j < CALIBRATE_TIMES; j++)
-      sum += sensor[i].readRangeSingle();
-    uint8_t ave = sum / CALIBRATE_TIMES;
-    uint8_t offset = TARGET_DISTANCE - ave;
-    sensor[i].writeReg(VL6180X::SYSRANGE__PART_TO_PART_RANGE_OFFSET, offset);
-    Serial.printf("Sensor %2u: offset->%03u \n", i, offset);
-    delay(10);
-
+    if (CALIBRATE_MODE) {
+      sensor[i].writeReg(VL6180X::SYSRANGE__PART_TO_PART_RANGE_OFFSET, 0x00);
+      delay(10);
+      uint32_t sum = 0;
+      for (uint8_t j = 0; j < CALIBRATE_TIMES; j++)
+        sum += sensor[i].readRangeSingle();
+      uint8_t ave = sum / CALIBRATE_TIMES;
+      uint8_t offset = TARGET_DISTANCE - ave;
+      sensor[i].writeReg(VL6180X::SYSRANGE__PART_TO_PART_RANGE_OFFSET, offset);
+      Serial.printf("Sensor %2u: offset->%03u \n", i, offset);
+      delay(10);
+    } else {
+      sensor[i].writeReg(VL6180X::SYSRANGE__PART_TO_PART_RANGE_OFFSET, offset_range[i]);
+      delay(10);
+    }
 
     // レンジの最大収束時間と ALS の積分時間をそれぞれ 30 ms と 50 ms に短縮し、10 Hz
     // 動作を可能にする（データシートの表「インターリーブモードの制限（10 Hz 動作）」で示唆されている通り）。
@@ -81,7 +85,7 @@ void setup() {
 
     // stopContinuous() がシングルショット測定をトリガした場合は、
     // 測定が完了するまで待つ。
-    delay(300);
+    delay(10);
   }
   // 100ミリ秒周期のインターリーブ連続モード開始
   for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++)
