@@ -1,3 +1,8 @@
+#include <BTAddress.h>
+#include <BTAdvertisedDevice.h>
+#include <BTScan.h>
+#include <BluetoothSerial.h>
+
 /* この例では、インターリーブ・モードを使用して、連続レンジ測定と環境光測定を行う方法を示します。
 データシートでは "レンジと ALS の連続モードを同時に（つまり非同期に）"実行する代わりに
 インターリーブモードを使うことを推奨しています。
@@ -28,17 +33,20 @@ VL6180X データシートの「連続モードの制限」のセクションと
 #define CALIBRATE_TIMES 30
 #define TARGET_DISTANCE 50
 #define HEAD_I2C_ADDRESS 0x30
-#define CALIBRATE_MODE true
+#define CALIBRATE_MODE false
+
+BluetoothSerial SerialBT;
 
 uint8_t range[NUM_SENSOR];
 uint8_t ambient[NUM_SENSOR];
 VL6180X sensor[NUM_SENSOR];
 uint8_t pin[NUM_SENSOR] = { 4, 5, 12, 13, 14, 15, 16, 17, 18, 19 };
 uint8_t num[NUM_SENSOR];
-uint8_t offset_range[NUM_SENSOR] = { 10, 14, 19, 11, 247, 5, 23, 10, 11, 7 };
+uint8_t offset_range[NUM_SENSOR] = { 10, 15, 15, 10, 249, 4, 21, 10, 14, 6 };
 
 void setup() {
   Serial.begin(115200);
+  SerialBT.begin("Esp32-tmk");
   Wire.begin();
   // すでにアクティブな場合は、連続モードを停止する
   for (uint8_t i = 0; i < NUM_SENSOR; i++) {
@@ -69,7 +77,10 @@ void setup() {
       uint8_t ave = sum / CALIBRATE_TIMES;
       uint8_t offset = TARGET_DISTANCE - ave;
       sensor[i].writeReg(VL6180X::SYSRANGE__PART_TO_PART_RANGE_OFFSET, offset);
-      Serial.printf("Sensor %2u: offset->%03u \n", i, offset);
+      // SerialBT.printf("Sensor %2u: offset->%03u ,\n", i, offset);
+      // Serial.printf("Sensor %2u: offset->%03u ,\n", i, offset);
+      SerialBT.printf("%3u ,", offset);
+      Serial.printf("%3u ,", offset);
       delay(10);
     } else {
       sensor[i].writeReg(VL6180X::SYSRANGE__PART_TO_PART_RANGE_OFFSET, offset_range[i]);
@@ -88,9 +99,14 @@ void setup() {
     // 測定が完了するまで待つ。
     delay(10);
   }
+  SerialBT.println();
+  Serial.println();
+  delay(1000);
+
   // 100ミリ秒周期のインターリーブ連続モード開始
   for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++)
-    sensor[i].startInterleavedContinuous(100);
+    sensor[i]
+      .startInterleavedContinuous(100);
 }
 
 void loop() {
@@ -98,15 +114,20 @@ void loop() {
 
     ambient[i] = sensor[i].readAmbientContinuous();
     range[i] = sensor[i].readRangeContinuousMillimeters();
-    if (range[i] != 255)
+    if (range[i] != 255) {
+      SerialBT.printf("%3u ", range[i]);
       Serial.printf("%3u ", range[i]);
-    else
+    } else {
+      SerialBT.print("OoR ");
       Serial.print("OoR ");
+    }
     if (sensor[i].timeoutOccurred()) {
+      SerialBT.printf("Sensor %2u: TIMEOUT\n", i);
       Serial.printf("Sensor %2u: TIMEOUT\n", i);
       while (true)
         ;
     }
   }
+  SerialBT.println();
   Serial.println();
 }

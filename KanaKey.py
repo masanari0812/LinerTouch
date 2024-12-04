@@ -41,8 +41,8 @@ class KanaKey(tk.Tk):
                     button = tk.Button(
                         self,
                         text=kana,
-                        width=10,
-                        height=5,
+                        width=5,
+                        height=3,
                         font=("Arial", 20),
                         command=lambda k=kana: self.insert_kana(k),
                     )
@@ -68,9 +68,17 @@ class KanaKey(tk.Tk):
         mouse_y -= self.winfo_rooty()
         x_button = int(mouse_x / button_width)
         y_button = int(mouse_y / button_height)
-        kana = self.kana_keys[y_button][x_button]
-        if kana:
-            self.insert_kana(kana)
+        try:
+            kana = self.kana_keys[y_button][x_button]
+            if kana:
+                self.insert_kana(kana)
+        except IndexError:
+            logger.error(f"pos: {x_button:2},{y_button:2}")
+            logger.error(f"pos: {mouse_x},{mouse_y}")
+            logger.error(f"pos: {button_width},{button_height}")
+            logger.error(
+                f"pos: {self.liner.estimated_pos[0]:3},{self.liner.estimated_pos[1]:3}"
+            )
 
     def insert_kana(self, kana):
         # エントリーに選択した文字を挿入

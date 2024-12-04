@@ -5,6 +5,8 @@ import logging
 import threading
 import keyboard
 import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.ndimage import gaussian_filter1d
 from collections import deque
 
 
@@ -12,7 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 class LinerTouch:
+
     def __init__(self, update_callback=None, tap_callback=None):
+        # LinerTouchの変数なくてもどこからでもアクセスできるように
+        LinerTouch.liner = self
         # LinerTouch が準備できたかを示す
         self.ready = False
         self.ser = serial.Serial("COM9", 115200)
@@ -94,19 +99,8 @@ class LinerTouch:
                         self.prev_pos = self.past_data[0]
                     self.past_data.appendleft(self.latest_pos.copy())
                     self.estimated_pos = self.latest_pos.copy()
-                    # 指数移動平均の計算
-                    # if self.ready:
-                    #     x_data = [data[0] for data in self.past_data]
-                    #     data_series = pd.Series(x_data)
-                    #     # 指数移動平均の計算
-                    #     # 最新データにどのくらい重みをかけるかを決めるパラメータ
-                    #     alpha = 0.9
-                    #     weighted_average = data_series.ewm(alpha=alpha).mean()
-                    #     self.estimated_pos[0] = weighted_average.iloc[-1]
 
-                    # 移動平均の計算
-                    if self.ready:
-                        self.estimated_pos = np.mean(self.past_data, axis=0)
+                    self.smoothing_filter()
 
                     # 指のタッチ検知
                     if self.ready:
@@ -173,6 +167,52 @@ class LinerTouch:
             end_time = time.time()
             logger.debug(f"Time taken: {end_time - start_time:.6f} seconds")
 
+    # estimated_posを求める
+    def smoothing_filter(self):
+        # 指数移動平均の計算
+        # if self.ready:
+        #     alpha = 0.4
+        #     data = [data[0] for data in self.past_data]
+        #     ema = np.zeros_like(data, dtype=float)
+        #     ema[0] = data[0]
+
+        #     for i in range(1, len(data)):
+        #         ema[i] = alpha * data[i] + (1 - alpha) * ema[i - 1]
+        #     self.estimated_pos[0] = ema[-1]
+
+        # 移動平均の計算
+        if self.ready:
+            self.estimated_pos = np.mean(self.past_data, axis=0)
+
+        # ガウシアンフィルタを適用
+        # if self.ready:
+        #     sigma = 1.0  # 標準偏差（スムージングの強さ）
+        #     self.estimated_pos[0] = gaussian_filter1d(self.past_data, sigma)[-1][0]
+        self.plot_data()
+
+    def plot_data(self):
+        if len(self.past_data) == self.past_data_num:
+            plt.ion()  # インタラクティブモードをオン
+            fig, ax = plt.subplots()
+            # x座標とy座標を別々に取り出す
+            x_data = [pos[0] for pos in self.past_data]
+            y_data = [pos[1] for pos in self.past_data]
+            (self.plot_line,) = ax.plot(
+                range(self.past_data_num), y_data, label="Dynamic Data"
+            )
+            ax.set_ylim(0, 200)  # センサーの高さに合わせて調整
+            ax.set_xlim(0, self.past_data_num - 1)
+            # プロットの更新
+            y_data = [pos[1] for pos in self.past_data]
+            self.plot_line.set_ydata(y_data)
+            plt.draw()
+
+
+def display_data():
+    logger.info(
+        f"pos: {LinerTouch.liner.estimated_pos[0]:3.2f},{LinerTouch.liner.estimated_pos[1]:3.2f}"
+    )
+
 
 if __name__ == "__main__":
     # ログの設定 - 全てのログレベルを表示するように設定
@@ -181,3 +221,4 @@ if __name__ == "__main__":
         format="[%(levelname)s] %(name)s: %(message)s",  # フォーマットの設定
     )
     liner_touch = LinerTouch()
+    liner_touch.update_callback = display_data
