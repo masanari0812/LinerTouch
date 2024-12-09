@@ -49,6 +49,9 @@ class LinerTouch:
         time.sleep(0.1)
         threading.Thread(target=self.get_data).start()
 
+        self.fig = None  # figを初期化
+        self.ax = None  # axも初期化
+
     def get_data(self):
         # gキーが押されるまでループ
         while not keyboard.is_pressed("g"):
@@ -191,21 +194,24 @@ class LinerTouch:
         self.plot_data()
 
     def plot_data(self):
+        x_data = [data[0] for data in self.past_data]
+        # 描画の設定
+
         if len(self.past_data) == self.past_data_num:
-            plt.ion()  # インタラクティブモードをオン
-            fig, ax = plt.subplots()
-            # x座標とy座標を別々に取り出す
-            x_data = [pos[0] for pos in self.past_data]
-            y_data = [pos[1] for pos in self.past_data]
-            (self.plot_line,) = ax.plot(
-                range(self.past_data_num), y_data, label="Dynamic Data"
-            )
-            ax.set_ylim(0, 200)  # センサーの高さに合わせて調整
-            ax.set_xlim(0, self.past_data_num - 1)
-            # プロットの更新
-            y_data = [pos[1] for pos in self.past_data]
-            self.plot_line.set_ydata(y_data)
-            plt.draw()
+            if self.fig is None:
+                plt.ion()  # インタラクティブモードを有効化
+                self.fig, self.ax = plt.subplots()
+
+                (self.line,) = self.ax.plot(
+                    x_data, range(self.past_data_num)
+                )  # 折れ線グラフを作成
+                self.ax.set_xlim(0, self.sensor_num)  # Y軸の範囲
+            else:
+                self.line.set_ydata(range(self.past_data_num))
+                self.line.set_xdata(x_data)
+                self.ax.set_ylim(0, self.past_data_num)
+                self.fig.canvas.draw()
+                self.fig.canvas.flush_events()
 
 
 def display_data():

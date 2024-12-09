@@ -33,7 +33,12 @@ VL6180X データシートの「連続モードの制限」のセクションと
 #define CALIBRATE_TIMES 30
 #define TARGET_DISTANCE 50
 #define HEAD_I2C_ADDRESS 0x30
-#define CALIBRATE_MODE false
+
+// キャリブレーションを行うかの設定
+#define CALIBRATE_MODE true
+
+// 範囲外だった場合の出力する値の設定
+#define OUT_OF_RANGE_OUTPUT true
 
 BluetoothSerial SerialBT;
 
@@ -114,12 +119,12 @@ void loop() {
 
     ambient[i] = sensor[i].readAmbientContinuous();
     range[i] = sensor[i].readRangeContinuousMillimeters();
-    if (range[i] != 255) {
-      SerialBT.printf("%3u ", range[i]);
-      Serial.printf("%3u ", range[i]);
-    } else {
+    if (range[i] == 255 && OUT_OF_RANGE_OUTPUT) {
       SerialBT.print("OoR ");
       Serial.print("OoR ");
+    } else {
+      SerialBT.printf("%3u ", range[i]);
+      Serial.printf("%3u ", range[i]);
     }
     if (sensor[i].timeoutOccurred()) {
       SerialBT.printf("Sensor %2u: TIMEOUT\n", i);
