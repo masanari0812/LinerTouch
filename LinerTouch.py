@@ -12,6 +12,12 @@ from collections import deque
 
 logger = logging.getLogger(__name__)
 
+# 過去データの中身
+# past_data = [{
+#     "estimated_pos": [5, 50],
+#     "actual_data": [[i, i * 10] for i in range(10)]
+#     },...]
+
 
 class LinerTouch:
 
@@ -22,8 +28,7 @@ class LinerTouch:
         self.ready = False
         self.ser = serial.Serial("COM9", 115200)
 
-        self.latest_pos = [0, 0]
-        self.estimated_pos = [0, 0]
+        self.mean_pos = [0, 0]
         # センサーの数
         self.sensor_num = 10
 
@@ -34,7 +39,7 @@ class LinerTouch:
         self.release_threshold = 1
         # 保存するデータの数
         self.past_data_num = 20
-        self.past_data = deque(maxlen=self.past_data_num)
+
         # タップフラグ
         self.tap_flag = False
         # 指の幅の収束率
@@ -51,6 +56,12 @@ class LinerTouch:
 
         self.fig = None  # figを初期化
         self.ax = None  # axも初期化
+        self.past_data = {
+            "estimated_pos": deque(maxlen=self.past_data_num),
+            "mean_pos": deque(maxlen=self.past_data_num),
+            "actual_data": deque(maxlen=self.past_data_num),
+            "len": 0,
+        }
 
     def get_data(self):
         # gキーが押されるまでループ
@@ -77,32 +88,9 @@ class LinerTouch:
 
                     # デバッグ用出力
                     logger.debug(f"Processed range_data: {self.range_data}")
-                    # y_pos から n 以上離れているペアを削除
 
-                    # y軸側
-                    # センサーの数値が最も小さいものを選択
-                    self.latest_pos[1] = min([data[1] for data in self.range_data])
-                    self.latest_pos[1] = np.mean(
-                        [
-                            data[1]
-                            for data in self.range_data
-                            if data[1] - self.latest_pos[1] < self.height_threshold
-                        ]
-                    )
-                    # x軸側
-                    # 閾値以上のデータを除いたセンサーのインデックスの平均を選択
-                    self.latest_pos[0] = np.mean(
-                        [
-                            data[0]
-                            for data in self.range_data
-                            if data[1] - self.latest_pos[1] < self.height_threshold
-                        ]
-                    )
                     if self.ready:
-                        self.prev_pos = self.past_data[0]
-                    self.past_data.appendleft(self.latest_pos.copy())
-                    self.estimated_pos = self.latest_pos.copy()
-
+                        self.prev_pos = self.get_pastdata("estimated_pos")[0]
                     self.smoothing_filter()
 
                     # 指のタッチ検知
@@ -170,8 +158,32 @@ class LinerTouch:
             end_time = time.time()
             logger.debug(f"Time taken: {end_time - start_time:.6f} seconds")
 
+    def culc_mean_pos(self):
+        # y_pos から n 以上離れているペアを削除
+
+        # y軸側
+        # センサーの数値が最も小さいものを選択
+        self.mean_pos[1] = min([data[1] for data in self.range_data])
+        self.mean_pos[1] = np.mean(
+            [
+                data[1]
+                for data in self.range_data
+                if data[1] - self.mean_pos[1] < self.height_threshold
+            ]
+        )
+        # x軸側
+        # 閾値以上のデータを除いたセンサーのインデックスの平均を選択
+        self.mean_pos[0] = np.mean(
+            [
+                data[0]
+                for data in self.range_data
+                if data[1] - self.mean_pos[1] < self.height_threshold
+            ]
+        )
+
     # estimated_posを求める
     def smoothing_filter(self):
+        self.culc_mean_pos()
         # 指数移動平均の計算
         # if self.ready:
         #     alpha = 0.4
@@ -184,20 +196,23 @@ class LinerTouch:
         #     self.estimated_pos[0] = ema[-1]
 
         # 移動平均の計算
-        if self.ready:
-            self.estimated_pos = np.mean(self.past_data, axis=0)
-
+        if self.get_pastdata("len") == self.past_data_num:
+            self.estimated_pos = np.mean(self.get_pastdata("mean_pos"), axis=0)
+        else:
+            self.estimated_pos = self.mean_pos
         # ガウシアンフィルタを適用
         # if self.ready:
         #     sigma = 1.0  # 標準偏差（スムージングの強さ）
         #     self.estimated_pos[0] = gaussian_filter1d(self.past_data, sigma)[-1][0]
+
+        self.add_pastdata(self.estimated_pos, self.mean_pos, self.range_data)
         self.plot_data()
 
     def plot_data(self):
-        x_data = [data[0] for data in self.past_data]
+        x_data = [data[0] for data in self.get_pastdata("estimated_pos")]
         # 描画の設定
 
-        if len(self.past_data) == self.past_data_num:
+        if self.get_pastdata("len") == self.past_data_num:
             if self.fig is None:
                 plt.ion()  # インタラクティブモードを有効化
                 self.fig, self.ax = plt.subplots()
@@ -213,11 +228,24 @@ class LinerTouch:
                 self.fig.canvas.draw()
                 self.fig.canvas.flush_events()
 
+    def get_pastdata(self, key:str):
+        if self.past_data is None:
+            pass
+        return self.past_data[key]
+
+    def add_pastdata(self, estimated_pos=None, mean_pos=None, actual_data=None):
+        self.past_data["estimated_pos"].appendleft(estimated_pos)
+        self.past_data["mean_pos"].appendleft(mean_pos)
+        self.past_data["actual_data"].appendleft([actual_data])
+        self.past_data["len"] = len(self.past_data["estimated_pos"])
+
 
 def display_data():
-    logger.info(
-        f"pos: {LinerTouch.liner.estimated_pos[0]:3.2f},{LinerTouch.liner.estimated_pos[1]:3.2f}"
-    )
+    if LinerTouch.get_pastdata("len") > 0:
+        first_estimated_pos = LinerTouch.get_pastdata("estimated_pos")[0]
+        logger.info(
+            f"pos: {first_estimated_pos[0]:3.2f}, {first_estimated_pos[1]:3.2f}"
+        )
 
 
 if __name__ == "__main__":
