@@ -26,7 +26,7 @@ class LinerTouch:
         LinerTouch.liner = self
         # LinerTouch が準備できたかを示す
         self.ready = False
-        self.ser = serial.Serial("COM9", 115200)
+        self.ser = serial.Serial("COM5", 115200)
 
         self.mean_pos = [0, 0]
         # センサーの数
@@ -104,9 +104,9 @@ class LinerTouch:
                         #     ):
                         #         self.tap_flag = False
                         # 指が離れた場合
+                        latest_pos = self.get_pastdata("estimated_pos")[0]
                         if (
-                            self.latest_pos[1] - self.prev_pos[1]
-                            > self.height_threshold
+                            latest_pos[1] - self.prev_pos[1] > self.height_threshold
                             and self.tap_flag == False
                         ):
                             release_start_time = time.time()
@@ -120,10 +120,7 @@ class LinerTouch:
                             self.estimated_pos = self.release_pos.copy()
 
                             # 指が押された場合
-                            if (
-                                self.prev_pos[1] - self.latest_pos[1]
-                                > self.height_threshold
-                            ):
+                            if self.prev_pos[1] - latest_pos[1] > self.height_threshold:
 
                                 release_end_time = time.time()
                                 release_elapsed_time = (
@@ -220,7 +217,7 @@ class LinerTouch:
                 (self.line,) = self.ax.plot(
                     x_data, range(self.past_data_num)
                 )  # 折れ線グラフを作成
-                self.ax.set_xlim(0, self.sensor_num)  # Y軸の範囲
+                self.ax.set_xlim(-1, self.sensor_num)  # Y軸の範囲
             else:
                 self.line.set_ydata(range(self.past_data_num))
                 self.line.set_xdata(x_data)
@@ -228,7 +225,7 @@ class LinerTouch:
                 self.fig.canvas.draw()
                 self.fig.canvas.flush_events()
 
-    def get_pastdata(self, key:str):
+    def get_pastdata(self, key: str):
         if self.past_data is None:
             pass
         return self.past_data[key]
@@ -241,8 +238,8 @@ class LinerTouch:
 
 
 def display_data():
-    if LinerTouch.get_pastdata("len") > 0:
-        first_estimated_pos = LinerTouch.get_pastdata("estimated_pos")[0]
+    if LinerTouch.liner.get_pastdata("len") > 0:
+        first_estimated_pos = LinerTouch.liner.get_pastdata("estimated_pos")[0]
         logger.info(
             f"pos: {first_estimated_pos[0]:3.2f}, {first_estimated_pos[1]:3.2f}"
         )
