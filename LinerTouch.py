@@ -8,6 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from scipy.ndimage import gaussian_filter1d
+from scipy.optimize import minimize
 from sympy import (
     symbols,
     Eq,
@@ -19,6 +20,7 @@ from sympy import (
     solve_univariate_inequality,
     reduce_inequalities,
 )
+
 
 from collections import deque
 from itertools import combinations
@@ -110,8 +112,8 @@ class LinerTouch:
                     # デバッグ用出力
                     logger.info(f"Processed range_data: {self.range_data}")
                     if self.ready:
-                        self.prev_pos = self.estimated_pos.copy()
                         self.smoothing_filter()
+                        self.prev_pos = self.estimated_pos
                     self.get_touch()
 
                     # 更新コールバック
@@ -171,13 +173,14 @@ class LinerTouch:
             # self.estimated_pos[0] = ema[-1]
 
             # 移動平均の計算
-            # self.estimated_pos = np.mean(self.get_pastdata("mean_pos"), axis=0)
+            # self.filter_average()
 
             # ガウシアンフィルタを適用
             # sigma = 0.5  # 標準偏差（スムージングの強さ）
             # mean_data = [data[0] for data in self.get_pastdata("mean_pos")].copy()
             # self.estimated_pos[0] = gaussian_filter1d(mean_data, sigma)[0]
 
+            # self.filter_cross_cicles()
             self.filter_inv_solve()
         self.add_pastdata(self.estimated_pos, self.mean_pos, self.range_data)
         data = self.get_pastdata("estimated_pos")
@@ -271,8 +274,12 @@ class LinerTouch:
                 f"e_pos: {first_estimated_pos[0]:3.2f}, {first_estimated_pos[1]:3.2f}"
             )
 
+    # 移動平均の計算
+    def filter_average(self):
+        self.estimated_pos = np.mean(self.get_pastdata("mean_pos"), axis=0)
+
     # 方程式の解求めるヤツ
-    def filter_inv_solve(self):
+    def filter_cross_cicles(self):
         if len(self.range_data) <= 1:
             logger.error("range_data must have more than one element")
             self.estimated_pos[1] += self.sensor_ratio / 2
@@ -324,49 +331,72 @@ class LinerTouch:
         self.estimated_pos[0] = sum(c_values) / len(c_values) if c_values else 0
         self.estimated_pos[1] = sum(d_values) / len(d_values) if d_values else 0
 
+    def filter_inv_solve(self):
+        range_np = np.array(self.range_data)
+        # x と y を分解
+        range_x = range_np[:, 0]  # 1列目
+        range_y = range_np[:, 1]  # 2列目
+        r = self.sensor_ratio
+
+        # 誤差関数
+        def error(params):
+            a, b = params
+            residuals = np.sqrt((range_x - a) ** 2 + (range_y - b) ** 2) - r
+            return np.sum(residuals**2)
+
+        # 初期値 (観測点の中心を使用)
+        x_mean, y_mean = np.mean(range_x), np.mean(range_y)
+        initial_guess = [x_mean, y_mean]
+
+        # 最適化
+        result = minimize(error, initial_guess)
+        # 結果
+        self.estimated_pos = list(result.x)
+        logger.info(f"pos: {self.estimated_pos}")
+
     def get_touch(self):
+        if False:
+            # 指のタッチ検知
+            if self.ready:
+                # if self.tap_flag:
+                #     self.next_pos = self.release_pos
+                #     # タップ検知の時間閾値を超えた場合
+                #     if (
+                #         time.time() - release_start_time
+                #         > self.release_threshold
+                #     ):
+                #         self.tap_flag = False
+                # 指が離れた場合
+                latest_pos = self.get_pastdata("estimated_pos")[0]
+                if (
+                    latest_pos[1] - self.prev_pos[1] > self.height_threshold
+                    and self.tap_flag == False
+                ):
+                    release_start_time = time.time()
+                    self.tap_flag = True
+                    # タッチ予定の座標を記録
+                    self.release_pos = self.estimated_pos.copy()
 
-        # 指のタッチ検知
-        if self.ready:
-            # if self.tap_flag:
-            #     self.next_pos = self.release_pos
-            #     # タップ検知の時間閾値を超えた場合
-            #     if (
-            #         time.time() - release_start_time
-            #         > self.release_threshold
-            #     ):
-            #         self.tap_flag = False
-            # 指が離れた場合
-            latest_pos = self.get_pastdata("estimated_pos")[0]
-            if (
-                latest_pos[1] - self.prev_pos[1] > self.height_threshold
-                and self.tap_flag == False
-            ):
-                release_start_time = time.time()
-                self.tap_flag = True
-                # タッチ予定の座標を記録
-                self.release_pos = self.estimated_pos.copy()
+                # タップのフラグがある場合
+                if self.tap_flag == True:
+                    # 指が押されていない場合離した際の座標release_posを利用
+                    self.estimated_pos = self.release_pos.copy()
 
-            # タップのフラグがある場合
-            if self.tap_flag == True:
-                # 指が押されていない場合離した際の座標release_posを利用
-                self.estimated_pos = self.release_pos.copy()
+                    # 指が押された場合
+                    if self.prev_pos[1] - latest_pos[1] > self.height_threshold:
 
-                # 指が押された場合
-                if self.prev_pos[1] - latest_pos[1] > self.height_threshold:
-
-                    release_end_time = time.time()
-                    release_elapsed_time = release_end_time - release_start_time
-                    if release_elapsed_time <= self.release_threshold:
-                        self.tap_flag = False
-                        if self.tap_callback:
-                            self.tap_callback()
-                else:
-                    # タッチ時間の閾値を超えた場合フラグをオフにする処理
-                    if time.time() - release_start_time > self.release_threshold:
-                        self.tap_flag = False
-                    # 指が押されていない間は最後に離した際の座標release_posを利用
-            logger.debug(f"tap_flag: {self.tap_flag}")
+                        release_end_time = time.time()
+                        release_elapsed_time = release_end_time - release_start_time
+                        if release_elapsed_time <= self.release_threshold:
+                            self.tap_flag = False
+                            if self.tap_callback:
+                                self.tap_callback()
+                    else:
+                        # タッチ時間の閾値を超えた場合フラグをオフにする処理
+                        if time.time() - release_start_time > self.release_threshold:
+                            self.tap_flag = False
+                        # 指が押されていない間は最後に離した際の座標release_posを利用
+                logger.debug(f"tap_flag: {self.tap_flag}")
 
 
 if __name__ == "__main__":
