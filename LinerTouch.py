@@ -41,7 +41,7 @@ class LinerTouch:
         LinerTouch.liner = self
         # LinerTouch が準備できたかを示す
         self.ready = False
-        self.ser = serial.Serial("COM9", 115200)
+        self.ser = serial.Serial("COM5", 115200)
 
         self.mean_pos = [0, 0]
         # センサーの数
@@ -114,11 +114,12 @@ class LinerTouch:
                     if self.ready:
                         self.smoothing_filter()
                         self.prev_pos = self.estimated_pos
+                        # 更新コールバック
+                        if self.update_callback:
+                            self.update_callback()
                     self.get_touch()
 
-                    # 更新コールバック
-                    if self.update_callback:
-                        self.update_callback()
+
 
                     # LinerTouch が準備できたことを示す
                     self.ready = True
