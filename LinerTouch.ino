@@ -27,6 +27,7 @@ VL6180X データシートの「連続モードの制限」のセクションと
 #include <VL6180X.h>
 #include "BluetoothSerial.h"
 
+#define MAX_NUM_SENSOR 10
 #define NUM_SENSOR 9
 #define HEAD_SENSOR 0
 #define TAIL_SENSOR 8
@@ -45,9 +46,9 @@ BluetoothSerial SerialBT;
 uint8_t range[NUM_SENSOR];
 uint8_t ambient[NUM_SENSOR];
 VL6180X sensor[NUM_SENSOR];
-uint8_t pin[NUM_SENSOR] = { 4, 5, 12, 13, 14, 15, 16, 17, 18, 19 };
+uint8_t pin[MAX_NUM_SENSOR] = { 4, 5, 12, 13, 14, 15, 16, 17, 18, 19 };
 uint8_t num[NUM_SENSOR];
-uint8_t offset_range[NUM_SENSOR] = { 13, 16, 19, 15, 251, 4, 26, 11, 14, 6 };
+uint8_t offset_range[MAX_NUM_SENSOR] = { 13, 16, 19, 15, 251, 4, 26, 11, 14, 6 };
 
 void setup() {
   Serial.begin(115200);

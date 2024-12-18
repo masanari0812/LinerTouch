@@ -11,13 +11,15 @@ logger = logging.getLogger(__name__)
 class LinerCanvas(tk.Tk):  # tk.Tk を継承
     def __init__(self):
         super().__init__()  # 親クラス (tk.Tk) の初期化を呼び出す
-        self.liner = LinerTouch()
+        self.liner = LinerTouch(plot_graph=False)
         while not self.liner.ready:
             time.sleep(0.1)
 
         self.canvas_width = 900
         self.canvas_height = 900
-        self.x_rate = self.canvas_width / self.liner.sensor_num
+        self.x_rate = self.canvas_width / (
+            self.liner.sensor_num * self.liner.sensor_ratio
+        )
         self.y_rate = self.canvas_height / self.liner.sensor_height
         self.title("軌跡描画")  # タイトル設定
         self.canvas = tk.Canvas(

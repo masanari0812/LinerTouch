@@ -14,7 +14,7 @@ class KanaKey(tk.Tk):
 
         self.cursor_x = 0
         self.cursor_y = 0
-        self.liner = LinerTouch()
+        self.liner = LinerTouch(plot_graph=False)
         self.liner.update_callback = self.update_cursor
         self.liner.tap_callback = self.tap_cursor
 
@@ -49,7 +49,7 @@ class KanaKey(tk.Tk):
                     button.grid(row=i, column=j, padx=0, pady=0)
 
     def update_cursor(self):
-        x_rate = self.winfo_width() / self.liner.sensor_num
+        x_rate = self.winfo_width() / (self.liner.sensor_num * self.liner.sensor_ratio)
         y_rate = self.winfo_height() / self.liner.sensor_height
         self.event_generate(
             "<Motion>",
