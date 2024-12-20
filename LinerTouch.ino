@@ -95,8 +95,8 @@ void setup() {
 
     // レンジの最大収束時間と ALS の積分時間をそれぞれ 30 ms と 50 ms に短縮し、10 Hz
     // 動作を可能にする（データシートの表「インターリーブモードの制限（10 Hz 動作）」で示唆されている通り）。
-    sensor[i].writeReg(VL6180X::SYSRANGE__MAX_CONVERGENCE_TIME, 30);
-    sensor[i].writeReg16Bit(VL6180X::SYSALS__INTEGRATION_PERIOD, 50);
+    sensor[i].writeReg(VL6180X::SYSRANGE__MAX_CONVERGENCE_TIME, 15);
+    sensor[i].writeReg16Bit(VL6180X::SYSALS__INTEGRATION_PERIOD, 25);
 
     sensor[i].setTimeout(500);
 
@@ -111,8 +111,7 @@ void setup() {
 
   // 100ミリ秒周期のインターリーブ連続モード開始
   for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++)
-    sensor[i]
-      .startInterleavedContinuous(100);
+    sensor[i].startInterleavedContinuous(50);
 }
 
 void loop() {

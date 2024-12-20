@@ -20,8 +20,7 @@ from sympy import (
     solve_univariate_inequality,
     reduce_inequalities,
 )
-
-
+from pulp import LpMinimize, LpProblem, LpVariable
 from collections import deque
 from itertools import combinations
 
@@ -41,7 +40,7 @@ class LinerTouch:
         LinerTouch.liner = self
         # LinerTouch が準備できたかを示す
         self.ready = False
-        self.ser = serial.Serial("COM5", 115200)
+        self.ser = serial.Serial("COM9", 115200)
 
         self.mean_pos = [0, 0]
         # センサーの数
@@ -52,7 +51,7 @@ class LinerTouch:
         self.sensor_ratio = 10
         self.sensor_height = 200
         # 指とこぶしの距離の閾値
-        self.height_threshold = 20
+        self.height_threshold = 15
         # 指のタッチ時間の閾値
         self.release_threshold = 1
         # 保存するデータの数
@@ -118,8 +117,6 @@ class LinerTouch:
                         if self.update_callback:
                             self.update_callback()
                     self.get_touch()
-
-
 
                     # LinerTouch が準備できたことを示す
                     self.ready = True
@@ -354,6 +351,9 @@ class LinerTouch:
         # 結果
         self.estimated_pos = list(result.x)
         logger.info(f"pos: {self.estimated_pos}")
+
+    def filter_inv_solve2(self):
+        pass
 
     def get_touch(self):
         if False:
