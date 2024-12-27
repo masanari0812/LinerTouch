@@ -8,7 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from scipy.ndimage import gaussian_filter1d
-from scipy.optimize import minimize, LinearConstraint, Bounds
+from scipy.optimize import minimize, LinearConstraint, Bounds, fsolve
 from sympy import (
     symbols,
     Eq,
@@ -64,7 +64,6 @@ class LinerTouch:
         # 指の幅の収束率
         self.width_convergence_rate = 0.7
 
-        #
         self.filtered_past_data = None
         # 初期値を設定
         # for _ in range(self.past_data_num):
@@ -78,7 +77,7 @@ class LinerTouch:
         self.fig = None  # figを初期化
         self.ax = None  # axも初期化
         self.past_data = {
-            "estimated_pos": deque(maxlen=self.past_data_num),
+            "estimated_data": deque(maxlen=self.past_data_num),
             "mean_pos": deque(maxlen=self.past_data_num),
             "min_pos": deque(maxlen=self.past_data_num),
             "actual_data": deque(maxlen=self.past_data_num),
@@ -99,6 +98,7 @@ class LinerTouch:
                 # スペースで区切ってデータをリストに変換
                 raw_data_list = raw_data.split()
                 self.sensor_num = len(raw_data_list)
+                self.estimated_data = []
                 # データを二次元配列の形式に整える（[インデックス, 数値] の順）
                 self.range_data = [
                     [idx * self.sensor_ratio, int(value)]
@@ -128,6 +128,7 @@ class LinerTouch:
                             self.update_callback()
                         # タッチ検出処理
                         self.get_touch()
+                        self.plot_data()
                     # LinerTouch が準備できたことを示す
                     self.ready = True
                     # データを保存
@@ -148,10 +149,9 @@ class LinerTouch:
     # estimated_posを求める
     def smoothing_filter(self):
         if self.ready:
-            self.prev_estimated_pos = self.estimated_pos
+            self.prev_estimated_data = self.estimated_data
 
         self.culc_mean_pos()
-        self.estimated_pos = self.mean_pos.copy()
         if self.get_pastdata("len") == self.past_data_num:
             # 指数移動平均の計算
             # alpha = 0.4
@@ -170,61 +170,15 @@ class LinerTouch:
             # sigma = 0.5  # 標準偏差（スムージングの強さ）
             # mean_data = [data[0] for data in self.get_pastdata("mean_pos")].copy()
             # self.estimated_pos[0] = gaussian_filter1d(mean_data, sigma)[0]
+            for data in self.split_x_data():
+                intersections = self.find_intersection_points(data)
+                self.estimated_data.extend(intersections)
+                # self.filter_inv_solve()
 
-            self.filter_inv_solve()
-        self.add_pastdata(
-            self.estimated_pos, self.mean_pos, self.min_pos, self.range_data
-        )
-        data = self.get_pastdata("estimated_pos")
-        # xとyの平均をそれぞれ計算
-        self.estimated_pos = np.mean(np.array(data), axis=0)
-        self.plot_data()
-        logger.info(
-            f"est: ({int(self.estimated_pos[0])}, {int(self.estimated_pos[1])})"
-        )
-
-    def plot_data(self):
-        if self.plot_graph:
-            mean_data = [data[0] for data in self.get_pastdata("mean_pos")]
-            estimated_data = [data[0] for data in self.get_pastdata("estimated_pos")]
-            # 描画の設定
-
-            if self.get_pastdata("len") == self.past_data_num:
-                if self.fig is None:
-                    plt.ion()  # インタラクティブモードを有効化
-                    self.fig, self.ax = plt.subplots()
-
-                    (self.mean_line,) = self.ax.plot(
-                        mean_data,
-                        range(self.past_data_num),
-                        label="mean_data",
-                        color="blue",
-                    )  # 折れ線グラフを作成
-                    (self.estimated_line,) = self.ax.plot(
-                        estimated_data,
-                        range(self.past_data_num),
-                        label="estimated_data",
-                        color="orange",
-                    )  # 折れ線グラフを作成
-                    self.ax.set_xlim(
-                        -1 * self.sensor_ratio, self.sensor_num * self.sensor_ratio
-                    )  # Y軸の範囲
-                else:
-                    self.mean_line.set_ydata(range(self.past_data_num))
-                    self.mean_line.set_xdata(mean_data)
-                    self.estimated_line.set_ydata(range(self.past_data_num))
-                    self.estimated_line.set_xdata(estimated_data)
-                    self.ax.set_ylim(0, self.past_data_num)
-                    # 円の描画の機能未完成　なんかスレッド間でデータがうまくいかない
-                    # # 円の削除
-                    # for patch in reversed(self.ax.patches):
-                    #     patch.remove()
-                    # # 円の描画
-                    # for range in self.get_pastdata("actual_data"):
-                    #     circle = patches.Circle((range[0], range[1]), 10, color="red", fill=False)
-                    #     self.ax.add_patch(circle)
-                    self.fig.canvas.draw()
-                    self.fig.canvas.flush_events()
+        self.add_pastdata(self.mean_pos, self.mean_pos, self.min_pos, self.range_data)
+        # self.add_pastdata(
+        #     self.estimated_data, self.mean_pos, self.min_pos, self.range_data
+        # )
 
     def get_pastdata(self, key: str):
         if self.past_data is None:
@@ -243,17 +197,17 @@ class LinerTouch:
 
     def add_pastdata(
         self,
-        estimated_pos: list[int] = None,
+        estimated_data: list[list[int]] = None,
         mean_pos: list[int] = None,
         min_pos: list[int] = None,
         actual_data: list[list[int]] = None,
     ) -> None:
-        self.past_data["estimated_pos"].appendleft(estimated_pos)
+        self.past_data["estimated_data"].appendleft(estimated_data)
         self.past_data["mean_pos"].appendleft(mean_pos)
         self.past_data["min_pos"].appendleft(min_pos)
         self.past_data["actual_data"].appendleft([actual_data])
         self.past_data["oor_flag"].appendleft([v == 255 for v in actual_data])
-        self.past_data["len"] = len(self.past_data["estimated_pos"])
+        self.past_data["len"] = len(self.past_data["estimated_data"])
 
     # def add_pastdata(self, estimated_pos=None):
     #     pass
@@ -280,8 +234,7 @@ class LinerTouch:
         # 観測値が1個の場合、観測値から指の半径から推測
         if len(self.range_data) < 2:
             logger.error("range_data must have more than one element")
-            self.estimated_pos = self.range_data[0].copy()
-            self.estimated_pos[1] += self.sensor_ratio / 2
+            self.estimated_data.append(self.range_data[0].copy())
             return
         # 観測値が2個の場合、円の交点による推測
         elif len(self.range_data) == 2:
@@ -316,76 +269,222 @@ class LinerTouch:
                     real_sols.append([sol_c, sol_d])
             if real_sols:
                 estimated_pos = max(real_sols, key=lambda sol: sol[1])
-                self.estimated_pos = (float(estimated_pos[0]), float(estimated_pos[1]))
+                self.estimated_data = (float(estimated_pos[0]), float(estimated_pos[1]))
         # 観測値が2個以上の場合、推測点とセンサーまでの距離と
         # センサー観測値と指の半径の合計の距離の誤差が最小になるような推測点
         else:
-            range_np = np.array(self.range_data)
 
-            result = []
-            temp_list = [range_np]
-            prev_x = range_np[0][0]
-            for i in range(1, len(range_np)):
-                x, y = range_np[i]
-                if x - prev_x > 10:
-                    result.append(temp_list)
-                    temp_list = [[x, y]]
-                    prev_x = x
-                else:
-                    temp_list.append([x, y])
+            for range_data in result:
+                range_x = result[:, 0]  # 1列目
+                range_r = result[:, 1]  # 2列目
+                r = self.sensor_ratio  # rの値
+                e = 3  # riの誤差
+
+                # 誤差関数
+                def error(params):
+                    x, y = params
+                    residuals = []
+                    for i in range(len(range_x)):
+                        for r_err in [-e, e]:  # 誤差を考慮
+                            ri_err = range_r[i] + r_err
+                            residual = np.sqrt(
+                                (x - range_x[i]) ** 2 + y**2 - (r + ri_err) ** 2
+                            )
+                            residuals.append(residual)
+                    return np.sum(np.array(residuals) ** 2)
+
+                # 制約関数
+                # 検知できなかったセンサ範囲を除く制約関数
+                # 左からの制約
+                def left_constraint(params):
+                    x, y = params
+                    return (
+                        (y * (np.tan(-12.5 * np.pi / 180)))
+                        + min(range_x)
+                        - self.sensor_ratio
+                        - x
+                    )
+
+                # 右からの制約
+                def right_constraint(params):
+                    x, y = params
+                    return (
+                        (y * (-np.tan(12.5 * np.pi / 180)))
+                        - max(range_x)
+                        + self.sensor_ratio
+                        + x
+                    )
+
+                # 入力領域外を除く制約関数
+                bounds = Bounds([0, 0], [100, 200])
+
+                # 初期値 (観測点の中心を使用)
+                initial_guess = [np.mean(range_x), np.mean(range_r)]
+
+                # 最適化
+                result = minimize(error, initial_guess, bounds=bounds)
+                # 結果
+                self.estimated_data.append(list(result.x).copy())
+
+    # センサのデータを未検知のセンサごとに分割
+    def split_x_data(self):
+        range_np = np.array(self.range_data)
+        result = []
+        temp_list = [range_np]
+        prev_x = range_np[0][0]
+        for i in range(1, len(range_np)):
+            x, y = range_np[i]
+            if x - prev_x > 10:
                 result.append(temp_list)
-                # x と y を分解
-                
-                for range_data in result]
-                    range_x = range_data[:, 0]  # 1列目
-                    range_r = range_data[:, 1]  # 2列目
-                    r = self.sensor_ratio  # rの値
-                    e = 3  # riの誤差
-                        # 誤差関数
-                        def error(params):
-                            x, y = params
-                            residuals = []
-                            for i in range(len(range_x)):
-                                for r_err in [-e, e]:  # 誤差を考慮
-                                    ri_err = range_r[i] + r_err
-                                    residual = np.sqrt(
-                                        (x - range_x[i]) ** 2 + y**2 - (r + ri_err) ** 2
-                                    )
-                                    residuals.append(residual)
-                            return np.sum(np.array(residuals) ** 2)
+                temp_list = [[x, y]]
+                prev_x = x
+            else:
+                temp_list.append([x, y])
+            result.append(temp_list)
+            # x と y を分解
+        return result
 
-                        # 制約関数
-                        # 検知できなかったセンサ範囲を除く制約関数
-                        # 左からの制約
-                        def left_constraint(params):
-                            x, y = params
-                            return (
-                                (y * (np.tan(-12.5 * np.pi / 180)))
-                                + min(range_x)
-                                - self.sensor_ratio
-                                - x
-                            )
+    def find_intersection_points(self, arcs):
+        """
+        複数の円弧の交点を求める関数。
 
-                        # 右からの制約
-                        def right_constraint(params):
-                            x, y = params
-                            return (
-                                (y * (-np.tan(12.5 * np.pi / 180)))
-                                - max(range_x)
-                                + self.sensor_ratio
-                                + x
-                            )
+        Args:
+            arcs: 弧の情報を格納したリスト。各要素は [中心のx座標, 半径] の形式のリスト。
 
-                        # 入力領域外を除く制約関数
-                        bounds = Bounds([0, 0], [100, 200])
+        Returns:
+            交点のリスト。各要素は (x, y) の形式のタプル。
+        """
 
-                        # 初期値 (観測点の中心を使用)
-                        initial_guess = [np.mean(range_x), np.mean(range_r)]
+        angle_range = [(90 - 12.5) / 180 * np.pi, (90 + 12.5) / 180 * np.pi]
+        intersection_points = []
 
-                        # 最適化
-                        result = minimize(error, initial_guess, bounds=bounds)
-                        # 結果
-                        self.estimated_pos = list(result.x)
+        def equations(variables, arc1, arc2):
+            """
+            2つの円弧の交点を求めるための方程式を定義する。
+
+            Args:
+            variables: 交点のx, y座標を格納したリスト [x, y]。
+            arc1: 1つ目の弧の情報 [中心のx座標, 半径]。
+            arc2: 2つ目の弧の情報 [中心のx座標, 半径]。
+
+            Returns:
+            連立方程式のリスト。
+            """
+            x, y = variables
+            x1, r1 = arc1
+            x2, r2 = arc2
+            return [
+                (x - x1) ** 2 + y**2 - r1**2,  # 円弧1の方程式
+                (x - x2) ** 2 + y**2 - r2**2,  # 円弧2の方程式
+            ]
+
+        def is_within_angle_range(x, y, arc_x):
+            """
+            点が指定された角度範囲内にあるかどうかを判定する。
+
+            Args:
+                x: 点のx座標
+                y: 点のy座標
+                arc_x: 弧の中心のx座標
+
+            Returns:
+                角度範囲内であればTrue、そうでなければFalse。
+            """
+            angle = np.arctan2(y, x - arc_x)
+
+            # 角度を0から2πの範囲に正規化
+            if angle < 0:
+                angle += 2 * np.pi
+
+            return angle_range[0] <= angle <= angle_range[1]
+
+        # 弧が1つしかない場合、その中心点を返す
+        if len(arcs) == 1:
+            return
+
+        for i in range(len(arcs)):
+            for j in range(i + 1, len(arcs)):
+                arc1 = arcs[i]
+                arc2 = arcs[j]
+
+                # 初期推定値を設定（2つの円の中心の中点）
+                initial_guess = [(arc1[0] + arc2[0]) / 2, 0]
+
+                # fsolveを使って交点を求める
+                solution = fsolve(
+                    equations, initial_guess, args=(arc1, arc2), full_output=True
+                )
+
+                if solution[2] == 1:  # 収束した場合のみ処理
+                    x, y = solution[0]
+
+                    # 交点が両方の弧の角度範囲内にあることを確認
+                    if is_within_angle_range(x, y, arc1[0]) and is_within_angle_range(
+                        x, y, arc2[0]
+                    ):
+                        intersection_points.append((x, y))
+        return intersection_points
+
+    def plot_data(self):
+        if not self.plot_graph:
+            if self.fig is None:
+                """
+                matplotlibのグラフを初期化する関数。
+                """
+                self.fig, self.ax = plt.subplots()
+                self.ax.set_aspect("equal")
+                self.ax.set_xlim(0, (self.sensor_num - 1) * self.sensor_ratio)
+                self.ax.set_ylim(0, self.sensor_height)
+                self.ax.set_xlabel("X")
+                self.ax.set_ylabel("Y")
+                self.ax.set_title("Sensor Data and Estimated Position")
+                plt.ion()  # 対話モードをオン
+                plt.show()
+            else:
+                """
+                センサーデータと推定位置をプロットする関数。
+                """
+
+                self.ax.clear()
+
+                # センサーデータのプロット
+                x_vals = [data[0] for data in self.range_data]
+                y_vals = [data[1] for data in self.range_data]
+                self.ax.scatter(x_vals, y_vals, color="blue", label="Sensor Data")
+
+                # 推定位置のプロット
+                for estimated_pos in self.estimated_data:
+                    self.ax.scatter(
+                        estimated_pos[0],
+                        estimated_pos[1],
+                        color="red",
+                        label="Estimated Position",
+                    )
+
+                    # 円弧の描画
+                    arc = patches.Arc(
+                        (estimated_pos[0], 0),
+                        2 * self.sensor_ratio,
+                        2 * self.sensor_ratio,
+                        theta1=90 - 12.5,
+                        theta2=90 + 12.5,
+                        edgecolor="red",
+                        linestyle="--",
+                    )
+                    self.ax.add_patch(arc)
+
+                # グラフの設定
+                self.ax.set_aspect("equal")
+                self.ax.set_xlim(0, (self.sensor_num - 1) * self.sensor_ratio)
+                self.ax.set_ylim(0, self.sensor_height)
+                self.ax.set_xlabel("X")
+                self.ax.set_ylabel("Y")
+                self.ax.set_title("Sensor Data and Estimated Position")
+                self.ax.legend()
+
+                # 描画を更新
+                self.fig.canvas.draw()
+                self.fig.canvas.flush_events()
 
     # 指のタッチ検知
     def get_touch(self):
@@ -396,7 +495,7 @@ class LinerTouch:
 
             # タッチフラグがある場合
             if self.tap_flag:
-                self.estimated_pos = self.release_pos.copy()
+                self.estimated_data = self.release_pos.copy()
                 # 指が押されていない場合離した際の座標release_posを利用
                 self.release_end_time = time.time()
                 release_elapsed_time = self.release_end_time - self.release_start_time
@@ -408,14 +507,14 @@ class LinerTouch:
                             self.tap_callback()
                 else:
                     self.tap_flag = False
-                self.estimated_pos = self.release_pos.copy()
+                self.estimated_data = self.release_pos.copy()
             # タッチフラグがない場合
             else:
                 if next_pos[1] - prev_pos[1] > self.height_threshold:
                     self.release_start_time = time.time()
                     self.tap_flag = True
                     # タッチ予定の座標を記録
-                    self.release_pos = self.prev_estimated_pos.copy()
+                    self.release_pos = self.prev_estimated_data.copy()
             logger.info(f"tap_flag: {self.tap_flag}")
 
     # 指のタッチ検知

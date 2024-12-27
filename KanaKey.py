@@ -54,8 +54,8 @@ class KanaKey(tk.Tk):
         self.event_generate(
             "<Motion>",
             warp=True,
-            x=self.liner.estimated_pos[0] * x_rate + 25,
-            y=self.liner.estimated_pos[1] * y_rate,
+            x=self.liner.estimated_data[0] * x_rate + 25,
+            y=self.liner.estimated_data[1] * y_rate,
         )
 
     def tap_cursor(self):
@@ -77,7 +77,7 @@ class KanaKey(tk.Tk):
             logger.error(f"pos: {mouse_x},{mouse_y}")
             logger.error(f"pos: {button_width},{button_height}")
             logger.error(
-                f"pos: {self.liner.estimated_pos[0]:3},{self.liner.estimated_pos[1]:3}"
+                f"pos: {self.liner.estimated_data[0]:3},{self.liner.estimated_data[1]:3}"
             )
 
     def insert_kana(self, kana):
