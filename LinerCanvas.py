@@ -39,10 +39,10 @@ class LinerCanvas(tk.Tk):  # tk.Tk を継承
     def draw_line(self):
         if keyboard.is_pressed("z"):
             logger.debug(
-                f"prev_pos: {self.liner.prev_pos}, estimated_pos: {self.liner.estimated_pos}"
+                f"prev_pos: {self.liner.prev_estimated_pos}, estimated_pos: {self.liner.estimated_pos}"
             )
 
-            prev_pos = self.liner.prev_pos
+            prev_pos = self.liner.prev_estimated_pos
             estimated_pos = self.liner.estimated_pos
             self.canvas.create_line(
                 prev_pos[0] * self.x_rate,
@@ -72,7 +72,7 @@ class LinerCanvas(tk.Tk):  # tk.Tk を継承
         )
 
     def erace_point(self, color="white", size=3):
-        prev_pos = self.liner.prev_pos
+        prev_pos = self.liner.prev_estimated_pos
         x = prev_pos[0] * self.x_rate
         y = prev_pos[1] * self.y_rate
         self.canvas.create_oval(

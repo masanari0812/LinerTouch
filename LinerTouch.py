@@ -8,7 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from scipy.ndimage import gaussian_filter1d
-from scipy.optimize import minimize
+from scipy.optimize import minimize, LinearConstraint, Bounds
 from sympy import (
     symbols,
     Eq,
@@ -51,9 +51,9 @@ class LinerTouch:
         self.sensor_ratio = 10
         self.sensor_height = 200
         # 指とこぶしの距離の閾値
-        self.height_threshold = 15
+        self.height_threshold = 30
         # 指のタッチ時間の閾値
-        self.release_threshold = 1
+        self.release_threshold = 0.5
         # 保存するデータの数
         self.past_data_num = 3
 
@@ -80,6 +80,7 @@ class LinerTouch:
         self.past_data = {
             "estimated_pos": deque(maxlen=self.past_data_num),
             "mean_pos": deque(maxlen=self.past_data_num),
+            "min_pos": deque(maxlen=self.past_data_num),
             "actual_data": deque(maxlen=self.past_data_num),
             "oor_flag": deque(maxlen=self.past_data_num),
             "len": 0,
@@ -107,20 +108,30 @@ class LinerTouch:
 
                 # データがある場合
                 if len(self.range_data) > 0:
+                    # センサーの数値が最も小さいものを選択
+                    self.min_pos = min([data for data in self.range_data])
+                    # 閾値以上のデータを除いたセンサーのインデックスの平均を選択
+                    self.range_data = [
+                        data
+                        for data in self.range_data
+                        if data[1] - self.min_pos[1] < self.height_threshold
+                    ]
 
                     # デバッグ用出力
                     logger.info(f"Processed range_data: {self.range_data}")
+                    # 生データから位置推定と更新処理
+
+                    self.smoothing_filter()
                     if self.ready:
-                        self.smoothing_filter()
-                        self.prev_pos = self.estimated_pos
                         # 更新コールバック
                         if self.update_callback:
                             self.update_callback()
-                    self.get_touch()
-
+                        # タッチ検出処理
+                        self.get_touch()
                     # LinerTouch が準備できたことを示す
                     self.ready = True
                     # データを保存
+                    self.prev_min_pos = self.min_pos.copy()
 
                 # データがない場合
                 else:
@@ -131,32 +142,14 @@ class LinerTouch:
 
     def culc_mean_pos(self):
         # y_pos から n 以上離れているペアを削除
-
-        # y軸側
-        # センサーの数値が最も小さいものを選択
-        min_range = min([data[1] for data in self.range_data])
-        self.mean_pos[1] = np.mean(
-            [
-                data[1]
-                for data in self.range_data
-                if data[1] - min_range < self.height_threshold
-            ]
-        )
-        # x軸側
-        # 閾値以上のデータを除いたセンサーのインデックスの平均を選択
-        self.mean_pos[0] = np.mean(
-            [
-                data[0]
-                for data in self.range_data
-                if data[1] - min_range < self.height_threshold
-            ]
-        )
-
-        self.mean_pos = self.mean_pos.copy()
+        self.mean_pos = np.mean(self.range_data, axis=0)
 
     # 追加のタイミングが一フレーム遅い
     # estimated_posを求める
     def smoothing_filter(self):
+        if self.ready:
+            self.prev_estimated_pos = self.estimated_pos
+
         self.culc_mean_pos()
         self.estimated_pos = self.mean_pos.copy()
         if self.get_pastdata("len") == self.past_data_num:
@@ -178,14 +171,17 @@ class LinerTouch:
             # mean_data = [data[0] for data in self.get_pastdata("mean_pos")].copy()
             # self.estimated_pos[0] = gaussian_filter1d(mean_data, sigma)[0]
 
-            # self.filter_cross_cicles()
             self.filter_inv_solve()
-        self.add_pastdata(self.estimated_pos, self.mean_pos, self.range_data)
+        self.add_pastdata(
+            self.estimated_pos, self.mean_pos, self.min_pos, self.range_data
+        )
         data = self.get_pastdata("estimated_pos")
         # xとyの平均をそれぞれ計算
         self.estimated_pos = np.mean(np.array(data), axis=0)
         self.plot_data()
-        logger.info(f"est: {self.estimated_pos}")
+        logger.info(
+            f"est: ({int(self.estimated_pos[0])}, {int(self.estimated_pos[1])})"
+        )
 
     def plot_data(self):
         if self.plot_graph:
@@ -245,9 +241,16 @@ class LinerTouch:
     #     }
     #     return
 
-    def add_pastdata(self, estimated_pos=None, mean_pos=None, actual_data=None):
+    def add_pastdata(
+        self,
+        estimated_pos: list[int] = None,
+        mean_pos: list[int] = None,
+        min_pos: list[int] = None,
+        actual_data: list[list[int]] = None,
+    ) -> None:
         self.past_data["estimated_pos"].appendleft(estimated_pos)
         self.past_data["mean_pos"].appendleft(mean_pos)
+        self.past_data["min_pos"].appendleft(min_pos)
         self.past_data["actual_data"].appendleft([actual_data])
         self.past_data["oor_flag"].appendleft([v == 255 for v in actual_data])
         self.past_data["len"] = len(self.past_data["estimated_pos"])
@@ -272,20 +275,18 @@ class LinerTouch:
                 f"e_pos: {first_estimated_pos[0]:3.2f}, {first_estimated_pos[1]:3.2f}"
             )
 
-    # 移動平均の計算
-    def filter_average(self):
-        self.estimated_pos = np.mean(self.get_pastdata("mean_pos"), axis=0)
-
-    # 方程式の解求めるヤツ
-    def filter_cross_cicles(self):
-        if len(self.range_data) <= 1:
+    # 逆問題による推測
+    def filter_inv_solve(self):
+        # 観測値が1個の場合、観測値から指の半径から推測
+        if len(self.range_data) < 2:
             logger.error("range_data must have more than one element")
+            self.estimated_pos = self.range_data[0].copy()
             self.estimated_pos[1] += self.sensor_ratio / 2
             return
-        max_sols = []
-        # 範囲データから解を求める
-        for f_range, p_range in zip(self.range_data, self.range_data[1:]):
-
+        # 観測値が2個の場合、円の交点による推測
+        elif len(self.range_data) == 2:
+            # 範囲データから解を求める
+            f_range, p_range = self.range_data
             # 変数の定義
             f_a, f_b, p_a, p_b, c, d, r = symbols("f_a f_b p_a p_b c d r")
 
@@ -306,98 +307,187 @@ class LinerTouch:
             eq_f = eq_f.subs(subs_values)
             eq_p = eq_p.subs(subs_values)
             solution_eqs = solve([eq_f, eq_p], (c, d), domain=Reals)
-            # logger.info(solution_eqs)
-            # 解をフィルタリングする
-            filtered_solutions = []
+            # 解の妥当性をチェックして代入
+            real_sols = []
             for sol in solution_eqs:
-                # 解がタプルまたは辞書として返されるケースに対応
                 sol_c = sol[0] if isinstance(sol, tuple) else sol[c]
                 sol_d = sol[1] if isinstance(sol, tuple) else sol[d]
-                # 実数かどうかを判定
                 if sol_c.is_real and sol_d.is_real:
-                    filtered_solutions.append((sol_c, sol_d))
-            # sol_d が最大の解を選択して表示
-            if filtered_solutions:
-                max_sols.append(
-                    max(filtered_solutions, key=lambda x: x[1])
-                )  # sol_d を基準に最大値を選択
-        # x（c）と y（d）の値をリストに格納
-        c_values = [sol[0].evalf() for sol in max_sols]
-        d_values = [sol[1].evalf() for sol in max_sols]
+                    real_sols.append([sol_c, sol_d])
+            if real_sols:
+                estimated_pos = max(real_sols, key=lambda sol: sol[1])
+                self.estimated_pos = (float(estimated_pos[0]), float(estimated_pos[1]))
+        # 観測値が2個以上の場合、推測点とセンサーまでの距離と
+        # センサー観測値と指の半径の合計の距離の誤差が最小になるような推測点
+        else:
+            range_np = np.array(self.range_data)
 
-        # x（c）と y（d）の平均を計算
-        self.estimated_pos[0] = sum(c_values) / len(c_values) if c_values else 0
-        self.estimated_pos[1] = sum(d_values) / len(d_values) if d_values else 0
+            result = []
+            temp_list = [range_np]
+            prev_x = range_np[0][0]
+            for i in range(1, len(range_np)):
+                x, y = range_np[i]
+                if x - prev_x > 10:
+                    result.append(temp_list)
+                    temp_list = [[x, y]]
+                    prev_x = x
+                else:
+                    temp_list.append([x, y])
+                result.append(temp_list)
+                # x と y を分解
+                
+                for range_data in result]
+                    range_x = range_data[:, 0]  # 1列目
+                    range_r = range_data[:, 1]  # 2列目
+                    r = self.sensor_ratio  # rの値
+                    e = 3  # riの誤差
+                        # 誤差関数
+                        def error(params):
+                            x, y = params
+                            residuals = []
+                            for i in range(len(range_x)):
+                                for r_err in [-e, e]:  # 誤差を考慮
+                                    ri_err = range_r[i] + r_err
+                                    residual = np.sqrt(
+                                        (x - range_x[i]) ** 2 + y**2 - (r + ri_err) ** 2
+                                    )
+                                    residuals.append(residual)
+                            return np.sum(np.array(residuals) ** 2)
 
-    def filter_inv_solve(self):
-        range_np = np.array(self.range_data)
-        # x と y を分解
-        range_x = range_np[:, 0]  # 1列目
-        range_y = range_np[:, 1]  # 2列目
-        r = self.sensor_ratio
+                        # 制約関数
+                        # 検知できなかったセンサ範囲を除く制約関数
+                        # 左からの制約
+                        def left_constraint(params):
+                            x, y = params
+                            return (
+                                (y * (np.tan(-12.5 * np.pi / 180)))
+                                + min(range_x)
+                                - self.sensor_ratio
+                                - x
+                            )
 
-        # 誤差関数
-        def error(params):
-            a, b = params
-            residuals = np.sqrt((range_x - a) ** 2 + (range_y - b) ** 2) - r
-            return np.sum(residuals**2)
+                        # 右からの制約
+                        def right_constraint(params):
+                            x, y = params
+                            return (
+                                (y * (-np.tan(12.5 * np.pi / 180)))
+                                - max(range_x)
+                                + self.sensor_ratio
+                                + x
+                            )
 
-        # 初期値 (観測点の中心を使用)
-        x_mean, y_mean = np.mean(range_x), np.mean(range_y)
-        initial_guess = [x_mean, y_mean]
+                        # 入力領域外を除く制約関数
+                        bounds = Bounds([0, 0], [100, 200])
 
-        # 最適化
-        result = minimize(error, initial_guess)
-        # 結果
-        self.estimated_pos = list(result.x)
-        logger.info(f"pos: {self.estimated_pos}")
+                        # 初期値 (観測点の中心を使用)
+                        initial_guess = [np.mean(range_x), np.mean(range_r)]
 
-    def filter_inv_solve2(self):
-        pass
+                        # 最適化
+                        result = minimize(error, initial_guess, bounds=bounds)
+                        # 結果
+                        self.estimated_pos = list(result.x)
 
+    # 指のタッチ検知
     def get_touch(self):
-        if False:
-            # 指のタッチ検知
-            if self.ready:
-                # if self.tap_flag:
-                #     self.next_pos = self.release_pos
-                #     # タップ検知の時間閾値を超えた場合
-                #     if (
-                #         time.time() - release_start_time
-                #         > self.release_threshold
-                #     ):
-                #         self.tap_flag = False
-                # 指が離れた場合
-                latest_pos = self.get_pastdata("estimated_pos")[0]
-                if (
-                    latest_pos[1] - self.prev_pos[1] > self.height_threshold
-                    and self.tap_flag == False
-                ):
-                    release_start_time = time.time()
+        if self.get_pastdata("len") == self.past_data_num and False:
+
+            prev_pos = self.get_pastdata("estimated_pos")[0]
+            next_pos = self.get_pastdata("estimated_pos")[2]
+
+            # タッチフラグがある場合
+            if self.tap_flag:
+                self.estimated_pos = self.release_pos.copy()
+                # 指が押されていない場合離した際の座標release_posを利用
+                self.release_end_time = time.time()
+                release_elapsed_time = self.release_end_time - self.release_start_time
+                if release_elapsed_time < self.release_threshold:
+                    if prev_pos[1] - next_pos[1] > self.height_threshold:
+                        self.tap_flag = False
+                        logger.info("tap2_act")
+                        if self.tap_callback:
+                            self.tap_callback()
+                else:
+                    self.tap_flag = False
+                self.estimated_pos = self.release_pos.copy()
+            # タッチフラグがない場合
+            else:
+                if next_pos[1] - prev_pos[1] > self.height_threshold:
+                    self.release_start_time = time.time()
                     self.tap_flag = True
                     # タッチ予定の座標を記録
-                    self.release_pos = self.estimated_pos.copy()
+                    self.release_pos = self.prev_estimated_pos.copy()
+            logger.info(f"tap_flag: {self.tap_flag}")
 
-                # タップのフラグがある場合
-                if self.tap_flag == True:
-                    # 指が押されていない場合離した際の座標release_posを利用
-                    self.estimated_pos = self.release_pos.copy()
+    # 指のタッチ検知
+    # def get_touch(self):
+    #     # タッチフラグがある場合
+    #     if self.tap_flag:
+    #         # 指が押されていない場合離した際の座標release_posを利用
+    #         self.release_end_time = time.time()
+    #         release_elapsed_time = self.release_end_time - self.release_start_time
+    #         if release_elapsed_time < self.release_threshold:
+    #             if self.estimated_pos[1] - self.min_pos[1] > self.height_threshold:
+    #                 self.tap_flag = False
+    #                 logger.info("tap2_act")
+    #                 if self.tap_callback:
+    #                     self.tap_callback()
+    #         else:
+    #             self.tap_flag = False
+    #         self.estimated_pos = self.release_pos.copy()
 
-                    # 指が押された場合
-                    if self.prev_pos[1] - latest_pos[1] > self.height_threshold:
+    #     # タッチフラグがない場合
+    #     else:
+    #         if self.min_pos[1] - self.prev_min_pos[1] > self.height_threshold:
+    #             self.release_start_time = time.time()
+    #             self.tap_flag = True
+    #             # タッチ予定の座標を記録
+    #             self.release_pos = self.prev_estimated_pos.copy()
+    #     logger.info(f"tap_flag: {self.tap_flag}")
 
-                        release_end_time = time.time()
-                        release_elapsed_time = release_end_time - release_start_time
-                        if release_elapsed_time <= self.release_threshold:
-                            self.tap_flag = False
-                            if self.tap_callback:
-                                self.tap_callback()
-                    else:
-                        # タッチ時間の閾値を超えた場合フラグをオフにする処理
-                        if time.time() - release_start_time > self.release_threshold:
-                            self.tap_flag = False
-                        # 指が押されていない間は最後に離した際の座標release_posを利用
-                logger.debug(f"tap_flag: {self.tap_flag}")
+    # def get_touch(self):
+    #     # 指のタッチ検知
+    #     if self.ready:
+    #         # if self.tap_flag:
+    #         #     self.next_pos = self.release_pos
+    #         #     # タップ検知の時間閾値を超えた場合
+    #         #     if (
+    #         #         time.time() - release_start_time
+    #         #         > self.release_threshold
+    #         #     ):
+    #         #         self.tap_flag = False
+    #         # 指が離れた場合
+    #         latest_pos = self.get_pastdata("estimated_pos")[0]
+    #         if (
+    #             self.min_pos[1] - self.prev_min_pos[1] > self.height_threshold
+    #             and self.tap_flag == False
+    #         ):
+    #             self.release_start_time = time.time()
+    #             self.tap_flag = True
+    #             # タッチ予定の座標を記録
+    #             self.release_pos = self.estimated_pos.copy()
+
+    #         # タップのフラグがある場合
+    #         if self.tap_flag == True:
+    #             # 指が押されていない場合離した際の座標release_posを利用
+    #             self.estimated_pos = self.release_pos.copy()
+
+    #             # 指が押された場合
+    #             if self.prev_min_pos[1] - self.min_pos[1] > self.height_threshold:
+
+    #                 self.release_end_time = time.time()
+    #                 release_elapsed_time = (
+    #                     self.release_end_time - self.release_start_time
+    #                 )
+    #                 if release_elapsed_time <= self.release_threshold:
+    #                     self.tap_flag = False
+    #                     if self.tap_callback:
+    #                         self.tap_callback()
+    #             else:
+    #                 # タッチ時間の閾値を超えた場合フラグをオフにする処理
+    #                 if time.time() - self.release_start_time > self.release_threshold:
+    #                     self.tap_flag = False
+    #                 # 指が押されていない間は最後に離した際の座標release_posを利用
+    #         logger.debug(f"tap_flag: {self.tap_flag}")
 
 
 if __name__ == "__main__":
