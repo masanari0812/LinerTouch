@@ -291,25 +291,27 @@ class LinerTouch:
                 self.estimated_data.append(list(result.x).copy())
 
     # センサのデータを未検知のセンサごとに分割
+
     def split_x_data(self):
         range_np = np.array(self.range_data)
-        if not range_np.size:  # range_dataが空の場合、何もしない
-            return
-
-        temp_list = [range_np[0]]
+        result = []
+        temp_list = []  # 初期化を空リストに変更
         prev_x = range_np[0][0]
-
-        for i in range(1, len(range_np)):
+        for i in range(len(range_np)):
             x, y = range_np[i]
-            if x - prev_x > self.sensor_ratio:
-                self.calculate_intersections(
-                    temp_list
-                )  # temp_list を calculate_intersections に渡す
-                temp_list = []
-            temp_list.append([x, y])
+            if i > 0 and x - prev_x > self.sensor_ratio:
+                result.append(temp_list)
+                temp_list = []  # 新しいリストを作成
+            temp_list.append([x, y])  # temp_list に要素を追加
             prev_x = x
 
-        self.calculate_intersections(temp_list)  # 最後の temp_list を処理
+        if temp_list:  # 最後の temp_list を result に追加
+
+            result.append(temp_list)
+
+        for data in result:
+
+            self.calculate_intersections(data)  # result ではなく data を渡す
 
     def update_plot(self):
         while not keyboard.is_pressed("g"):
@@ -350,7 +352,7 @@ class LinerTouch:
                 for i in range(len(self.range_data) - 1):
                     x0, r0 = self.range_data[i]
                     x1, r1 = self.range_data[i + 1]
-                    r0, r1 = r0 + self.sensor_ratio, r1 + self.sensor_ratio
+                    r0, r1 = r0 + self.finger_radius, r1 + self.finger_radius
                     # 円弧の描画
                     arc0 = patches.Arc(
                         (x0, 0),
@@ -493,22 +495,24 @@ class LinerTouch:
             eq1 = Eq((x - x1) ** 2 + (y - 0) ** 2, r1**2)
 
             # 方程式を解く
-            solution_eqs = solve([eq0, eq1], (x, y))
+            solution_eqs = solve([eq0, eq1], (x, y), domain=Reals, real=True)
 
             # 実数解を抽出し、y座標が最大のものを選択
             real_sols = []
             for sol in solution_eqs:
+                if not sol[0].is_real or not sol[1].is_real:  # 虚数解は除外
+                    continue
                 sol_x = float(sol[0])
                 sol_y = float(sol[1])
 
-                # 角度の範囲をチェック
-                angle = math.atan2(sol_y, sol_x - x0)
-                if angle_range[0] <= angle <= angle_range[1] and sol_y >= 0:
+                # # 角度の範囲をチェック
+                # angle = math.atan2(sol_y, sol_x - x0)
+                # if angle_range[0] <= angle <= angle_range[1]:
+                if sol_y >= 0:
                     real_sols.append([sol_x, sol_y])
             if real_sols:
                 estimated_pos = max(real_sols, key=lambda sol: sol[1])
                 self.estimated_data.append(estimated_pos)
-
 
     # 指のタッチ検知
     def get_touch(self):
