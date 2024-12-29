@@ -2,6 +2,7 @@ import serial
 import numpy as np
 import time
 import logging
+import math
 import threading
 import keyboard
 import pandas as pd
@@ -45,7 +46,7 @@ class LinerTouch:
         self.mean_pos = [0, 0]
         # センサーの数
         self.sensor_num = 9
-
+        self.finger_radius = 7
         # センサの高さに対しての一個あたりのセンサの横幅のサイズの倍率
         # センサの測定可能距離/センサの横幅=sensor_ratio
         self.sensor_ratio = 10
@@ -73,6 +74,7 @@ class LinerTouch:
         self.tap_callback = tap_callback
         time.sleep(0.1)
         threading.Thread(target=self.get_data).start()
+        threading.Thread(target=self.update_plot).start()
 
         self.fig = None  # figを初期化
         self.ax = None  # axも初期化
@@ -128,7 +130,7 @@ class LinerTouch:
                             self.update_callback()
                         # タッチ検出処理
                         self.get_touch()
-                        self.plot_data()
+                        # self.plot_data()
                     # LinerTouch が準備できたことを示す
                     self.ready = True
                     # データを保存
@@ -170,10 +172,7 @@ class LinerTouch:
             # sigma = 0.5  # 標準偏差（スムージングの強さ）
             # mean_data = [data[0] for data in self.get_pastdata("mean_pos")].copy()
             # self.estimated_pos[0] = gaussian_filter1d(mean_data, sigma)[0]
-            for data in self.split_x_data():
-                intersections = self.find_intersection_points(data)
-                self.estimated_data.extend(intersections)
-                # self.filter_inv_solve()
+            self.split_x_data()
 
         self.add_pastdata(self.mean_pos, self.mean_pos, self.min_pos, self.range_data)
         # self.add_pastdata(
@@ -236,48 +235,13 @@ class LinerTouch:
             logger.error("range_data must have more than one element")
             self.estimated_data.append(self.range_data[0].copy())
             return
-        # 観測値が2個の場合、円の交点による推測
-        elif len(self.range_data) == 2:
-            # 範囲データから解を求める
-            f_range, p_range = self.range_data
-            # 変数の定義
-            f_a, f_b, p_a, p_b, c, d, r = symbols("f_a f_b p_a p_b c d r")
-
-            # 方程式の定義
-            eq_f = Eq((c - f_a) ** 2 + (d - f_b) ** 2, r**2)
-            eq_p = Eq((c - p_a) ** 2 + (d - p_b) ** 2, r**2)
-
-            # 代入する値
-            subs_values = {
-                f_a: f_range[0],
-                f_b: f_range[1],
-                p_a: p_range[0],
-                p_b: p_range[1],
-                r: self.sensor_ratio,  # 半径
-            }
-
-            # 方程式に値を代入して解を求める
-            eq_f = eq_f.subs(subs_values)
-            eq_p = eq_p.subs(subs_values)
-            solution_eqs = solve([eq_f, eq_p], (c, d), domain=Reals)
-            # 解の妥当性をチェックして代入
-            real_sols = []
-            for sol in solution_eqs:
-                sol_c = sol[0] if isinstance(sol, tuple) else sol[c]
-                sol_d = sol[1] if isinstance(sol, tuple) else sol[d]
-                if sol_c.is_real and sol_d.is_real:
-                    real_sols.append([sol_c, sol_d])
-            if real_sols:
-                estimated_pos = max(real_sols, key=lambda sol: sol[1])
-                self.estimated_data = (float(estimated_pos[0]), float(estimated_pos[1]))
         # 観測値が2個以上の場合、推測点とセンサーまでの距離と
         # センサー観測値と指の半径の合計の距離の誤差が最小になるような推測点
         else:
-
             for range_data in result:
                 range_x = result[:, 0]  # 1列目
                 range_r = result[:, 1]  # 2列目
-                r = self.sensor_ratio  # rの値
+                r = self.finger_radius  # rの値
                 e = 3  # riの誤差
 
                 # 誤差関数
@@ -329,122 +293,51 @@ class LinerTouch:
     # センサのデータを未検知のセンサごとに分割
     def split_x_data(self):
         range_np = np.array(self.range_data)
-        result = []
-        temp_list = [range_np]
-        prev_x = range_np[0][0]
-        for i in range(1, len(range_np)):
-            x, y = range_np[i]
-            if x - prev_x > 10:
-                result.append(temp_list)
-                temp_list = [[x, y]]
-                prev_x = x
-            else:
-                temp_list.append([x, y])
-            result.append(temp_list)
-            # x と y を分解
-        return result
-
-    def find_intersection_points(self, arcs):
-        """
-        複数の円弧の交点を求める関数。
-
-        Args:
-            arcs: 弧の情報を格納したリスト。各要素は [中心のx座標, 半径] の形式のリスト。
-
-        Returns:
-            交点のリスト。各要素は (x, y) の形式のタプル。
-        """
-
-        angle_range = [(90 - 12.5) / 180 * np.pi, (90 + 12.5) / 180 * np.pi]
-        intersection_points = []
-
-        def equations(variables, arc1, arc2):
-            """
-            2つの円弧の交点を求めるための方程式を定義する。
-
-            Args:
-            variables: 交点のx, y座標を格納したリスト [x, y]。
-            arc1: 1つ目の弧の情報 [中心のx座標, 半径]。
-            arc2: 2つ目の弧の情報 [中心のx座標, 半径]。
-
-            Returns:
-            連立方程式のリスト。
-            """
-            x, y = variables
-            x1, r1 = arc1
-            x2, r2 = arc2
-            return [
-                (x - x1) ** 2 + y**2 - r1**2,  # 円弧1の方程式
-                (x - x2) ** 2 + y**2 - r2**2,  # 円弧2の方程式
-            ]
-
-        def is_within_angle_range(x, y, arc_x):
-            """
-            点が指定された角度範囲内にあるかどうかを判定する。
-
-            Args:
-                x: 点のx座標
-                y: 点のy座標
-                arc_x: 弧の中心のx座標
-
-            Returns:
-                角度範囲内であればTrue、そうでなければFalse。
-            """
-            angle = np.arctan2(y, x - arc_x)
-
-            # 角度を0から2πの範囲に正規化
-            if angle < 0:
-                angle += 2 * np.pi
-
-            return angle_range[0] <= angle <= angle_range[1]
-
-        # 弧が1つしかない場合、その中心点を返す
-        if len(arcs) == 1:
+        if not range_np.size:  # range_dataが空の場合、何もしない
             return
 
-        for i in range(len(arcs)):
-            for j in range(i + 1, len(arcs)):
-                arc1 = arcs[i]
-                arc2 = arcs[j]
+        temp_list = [range_np[0]]
+        prev_x = range_np[0][0]
 
-                # 初期推定値を設定（2つの円の中心の中点）
-                initial_guess = [(arc1[0] + arc2[0]) / 2, 0]
+        for i in range(1, len(range_np)):
+            x, y = range_np[i]
+            if x - prev_x > self.sensor_ratio:
+                self.calculate_intersections(
+                    temp_list
+                )  # temp_list を calculate_intersections に渡す
+                temp_list = []
+            temp_list.append([x, y])
+            prev_x = x
 
-                # fsolveを使って交点を求める
-                solution = fsolve(
-                    equations, initial_guess, args=(arc1, arc2), full_output=True
-                )
+        self.calculate_intersections(temp_list)  # 最後の temp_list を処理
 
-                if solution[2] == 1:  # 収束した場合のみ処理
-                    x, y = solution[0]
-
-                    # 交点が両方の弧の角度範囲内にあることを確認
-                    if is_within_angle_range(x, y, arc1[0]) and is_within_angle_range(
-                        x, y, arc2[0]
-                    ):
-                        intersection_points.append((x, y))
-        return intersection_points
+    def update_plot(self):
+        while not keyboard.is_pressed("g"):
+            if self.ready:
+                self.plot_data()
+            time.sleep(0.05)
 
     def plot_data(self):
-        if not self.plot_graph:
+        if self.plot_graph:
             if self.fig is None:
                 """
                 matplotlibのグラフを初期化する関数。
                 """
                 self.fig, self.ax = plt.subplots()
                 self.ax.set_aspect("equal")
-                self.ax.set_xlim(0, (self.sensor_num - 1) * self.sensor_ratio)
+                self.ax.set_xlim(
+                    -self.sensor_ratio, self.sensor_num * self.sensor_ratio
+                )
                 self.ax.set_ylim(0, self.sensor_height)
                 self.ax.set_xlabel("X")
                 self.ax.set_ylabel("Y")
-                self.ax.set_title("Sensor Data and Estimated Position")
+                self.ax.set_title("Sensor Data, Estimated Position, and Arcs")
                 plt.ion()  # 対話モードをオン
                 plt.show()
             else:
                 """
-                センサーデータと推定位置をプロットする関数。
+                センサーデータ、推定位置、および円弧をプロットする関数。
                 """
-
                 self.ax.clear()
 
                 # センサーデータのプロット
@@ -452,39 +345,170 @@ class LinerTouch:
                 y_vals = [data[1] for data in self.range_data]
                 self.ax.scatter(x_vals, y_vals, color="blue", label="Sensor Data")
 
-                # 推定位置のプロット
+                # 円弧と交点のプロット
+                angle_range = [(90 - 12.5) / 180 * np.pi, (90 + 12.5) / 180 * np.pi]
+                for i in range(len(self.range_data) - 1):
+                    x0, r0 = self.range_data[i]
+                    x1, r1 = self.range_data[i + 1]
+                    r0, r1 = r0 + self.sensor_ratio, r1 + self.sensor_ratio
+                    # 円弧の描画
+                    arc0 = patches.Arc(
+                        (x0, 0),
+                        2 * r0,
+                        2 * r0,
+                        theta1=np.degrees(angle_range[0]),
+                        theta2=np.degrees(angle_range[1]),
+                        edgecolor="green",
+                        linestyle="--",
+                    )
+                    self.ax.add_patch(arc0)
+                    arc1 = patches.Arc(
+                        (x1, 0),
+                        2 * r1,
+                        2 * r1,
+                        theta1=np.degrees(angle_range[0]),
+                        theta2=np.degrees(angle_range[1]),
+                        edgecolor="green",
+                        linestyle="--",
+                    )
+                    self.ax.add_patch(arc1)
+                logger.info(self.estimated_data)
+
+                # 推定位置(交点)のプロット
                 for estimated_pos in self.estimated_data:
                     self.ax.scatter(
                         estimated_pos[0],
                         estimated_pos[1],
                         color="red",
-                        label="Estimated Position",
+                        label=(
+                            "Estimated Position (Intersection)"
+                            if "Estimated Position (Intersection)"
+                            not in [l.get_label() for l in self.ax.get_lines()]
+                            else ""
+                        ),
                     )
-
-                    # 円弧の描画
-                    arc = patches.Arc(
-                        (estimated_pos[0], 0),
-                        2 * self.sensor_ratio,
-                        2 * self.sensor_ratio,
-                        theta1=90 - 12.5,
-                        theta2=90 + 12.5,
-                        edgecolor="red",
-                        linestyle="--",
-                    )
-                    self.ax.add_patch(arc)
 
                 # グラフの設定
                 self.ax.set_aspect("equal")
-                self.ax.set_xlim(0, (self.sensor_num - 1) * self.sensor_ratio)
+                self.ax.set_xlim(
+                    -self.sensor_ratio, self.sensor_num * self.sensor_ratio
+                )
                 self.ax.set_ylim(0, self.sensor_height)
                 self.ax.set_xlabel("X")
                 self.ax.set_ylabel("Y")
-                self.ax.set_title("Sensor Data and Estimated Position")
+                self.ax.set_title("Sensor Data, Estimated Position, and Arcs")
                 self.ax.legend()
 
                 # 描画を更新
                 self.fig.canvas.draw()
                 self.fig.canvas.flush_events()
+
+    # def plot_data(self):
+    #     if not self.plot_graph:
+    #         if self.fig is None:
+    #             """
+    #             matplotlibのグラフを初期化する関数。
+    #             """
+    #             self.fig, self.ax = plt.subplots()
+    #             self.ax.set_aspect("equal")
+    #             self.ax.set_xlim(0, (self.sensor_num - 1) * self.sensor_ratio)
+    #             self.ax.set_ylim(0, self.sensor_height)
+    #             self.ax.set_xlabel("X")
+    #             self.ax.set_ylabel("Y")
+    #             self.ax.set_title("Sensor Data and Estimated Position")
+    #             plt.ion()  # 対話モードをオン
+    #             plt.show()
+    #         else:
+    #             """
+    #             センサーデータと推定位置をプロットする関数。
+    #             """
+
+    #             self.ax.clear()
+
+    #             # センサーデータのプロット
+    #             x_vals = [data[0] for data in self.range_data]
+    #             y_vals = [data[1] for data in self.range_data]
+    #             self.ax.scatter(x_vals, y_vals, color="blue", label="Sensor Data")
+
+    #             # 推定位置のプロット
+    #             for estimated_pos in self.estimated_data:
+    #                 self.ax.scatter(
+    #                     estimated_pos[0],
+    #                     estimated_pos[1],
+    #                     color="red",
+    #                     label="Estimated Position",
+    #                 )
+
+    #                 # 円弧の描画
+    #                 arc = patches.Arc(
+    #                     (estimated_pos[0], 0),
+    #                     2 * self.sensor_ratio,
+    #                     2 * self.sensor_ratio,
+    #                     theta1=90 - 12.5,
+    #                     theta2=90 + 12.5,
+    #                     edgecolor="red",
+    #                     linestyle="--",
+    #                 )
+    #                 self.ax.add_patch(arc)
+
+    #             # グラフの設定
+    #             self.ax.set_aspect("equal")
+    #             self.ax.set_xlim(0, (self.sensor_num - 1) * self.sensor_ratio)
+    #             self.ax.set_ylim(0, self.sensor_height)
+    #             self.ax.set_xlabel("X")
+    #             self.ax.set_ylabel("Y")
+    #             self.ax.set_title("Sensor Data and Estimated Position")
+    #             self.ax.legend()
+
+    #             # 描画を更新
+    #             self.fig.canvas.draw()
+    #             self.fig.canvas.flush_events()
+
+    def calculate_intersections(self, circles):
+        """
+        複数の円の交点を計算し、y座標が最大の点を返す関数。
+
+        Args:
+            circles: 円の情報を含むリスト。各円は [x, r] の形式で、x は中心の x 座標、r は半径。
+
+        Returns:
+            交点のリスト。各交点は [x, y] の形式。
+        """
+
+        if len(circles) < 2:
+            logger.error("少なくとも2つの円が必要です。")
+            return
+
+        angle_range = [(90 - 12.5) / 180 * np.pi, (90 + 12.5) / 180 * np.pi]
+
+        for i in range(len(circles) - 1):
+            x0, r0 = circles[i]
+            x1, r1 = circles[i + 1]
+            r0, r1 = r0 + self.sensor_ratio, r1 + self.sensor_ratio
+            # シンボルの定義
+            x, y = symbols("x y")
+
+            # 方程式の定義 (yを角度から求めるように変更)
+            eq0 = Eq((x - x0) ** 2 + (y - 0) ** 2, r0**2)
+            eq1 = Eq((x - x1) ** 2 + (y - 0) ** 2, r1**2)
+
+            # 方程式を解く
+            solution_eqs = solve([eq0, eq1], (x, y))
+
+            # 実数解を抽出し、y座標が最大のものを選択
+            real_sols = []
+            for sol in solution_eqs:
+                sol_x = float(sol[0])
+                sol_y = float(sol[1])
+
+                # 角度の範囲をチェック
+                angle = math.atan2(sol_y, sol_x - x0)
+                if angle_range[0] <= angle <= angle_range[1] and sol_y >= 0:
+                    real_sols.append([sol_x, sol_y])
+            if real_sols:
+                estimated_pos = max(real_sols, key=lambda sol: sol[1])
+                self.estimated_data.append(estimated_pos)
+
 
     # 指のタッチ検知
     def get_touch(self):
