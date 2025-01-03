@@ -41,7 +41,7 @@ class LinerTouch:
         LinerTouch.liner = self
         # LinerTouch が準備できたかを示す
         self.ready = False
-        self.ser = serial.Serial("COM9", 115200)
+        self.ser = serial.Serial("COM3", 115200)
 
         self.mean_pos = [0, 0]
         # センサーの数
@@ -102,22 +102,24 @@ class LinerTouch:
                 self.sensor_num = len(raw_data_list)
                 self.estimated_data = []
                 # データを二次元配列の形式に整える（[インデックス, 数値] の順）
-                self.range_data = [
-                    [idx * self.sensor_ratio, int(value)]
-                    for idx, value in enumerate(raw_data_list)
-                    if value.isdigit()
-                ]
+                self.range_data = np.array(
+                    [
+                        [idx * self.sensor_ratio, int(value)]
+                        for idx, value in enumerate(raw_data_list)
+                        if value.isdigit()
+                    ]
+                )
 
                 # データがある場合
                 if len(self.range_data) > 0:
                     # センサーの数値が最も小さいものを選択
-                    self.min_pos = min([data for data in self.range_data])
+                    self.min_pos = min([data[1] for data in self.range_data])
                     # 閾値以上のデータを除いたセンサーのインデックスの平均を選択
-                    self.range_data = [
-                        data
-                        for data in self.range_data
-                        if data[1] - self.min_pos[1] < self.height_threshold
-                    ]
+                    # self.range_data =np.array( [
+                    #     data
+                    #     for data in self.range_data
+                    #     if data[1] - self.min_pos[1] < self.height_threshold
+                    # ])
 
                     # デバッグ用出力
                     logger.info(f"Processed range_data: {self.range_data}")
@@ -231,12 +233,13 @@ class LinerTouch:
     # 指の本数を推測し最も誤差が少ない推定位置を利用
     def split_finger_data(self, range_data):
         # 指の極大値を格納
+        range_data = np.array(range_data)
         if len(range_data) < 2:
             return
         max_idx = []
         range_x = range_data[:, 0]  # 1列目
         range_r = range_data[:, 1]  # 2列目
-        for i in range(1, range_data - 1):
+        for i in range(1, len(range_data) - 1):
             if range_r[i - 1] < range_r[i] > range_r[i + 1]:
                 max_idx.append(i)
         # max_idxの要素数+1が指の本数になる
@@ -244,101 +247,106 @@ class LinerTouch:
         # 2^(極大値の数)回数試行しそのインデックスを2進数に変換し
         # 極大値と同じインデックスの桁数目の数によって左右どちらに振り分けるか決める
         # 極大値が4本でインデックスが0b0110の場合、左右右左となる。
+        logger.info(max_idx)
         if len(max_idx) > 0:
             result = []
             for b in range(2 ** len(max_idx)):
-                bits = bin(b)[2:]
+                # 二進数の接頭辞の削除
+                bits = format(b, f"0{len(max_idx)}b")
                 prev_idx = 0
                 data = []
-                for i in max_idx:
+                for i in range(len(max_idx)):
                     # 左に
-                    if bits[i] == 0:
+                    if bits[i] == "0":
                         data.append(range_data[prev_idx:i])
                         prev_idx = i + 1
                     # 右に
-                    elif bits[i] == 1:
+                    elif bits[i] == "1":
                         data.append(range_data[prev_idx : i - 1])
                         prev_idx = i
                     else:
                         logger.error("0と1以外の数字が来た")
                 data.append(range_data[prev_idx:])
                 result.append(data)
+            err_val = []
+            for data in result:
+                val = 0
+                for d in data:
+                    val += self.filter_inv_solve(d).fun
+                err_val.append(val)
+                logger.info(f"err_val:{val}")
+                logger.info(f"data:{data}")
         else:
             self.filter_inv_solve(range_data)
 
     # 逆問題による推測
     def filter_inv_solve(self, range_data, left=False, right=False):
         # 観測値が1個の場合、観測値から指の半径から推測
-        if len(self.range_data) < 2:
-            logger.error("range_data must have more than one element")
-            self.estimated_data.append(self.range_data[0].copy())
-            return
-        # 観測値が2個以上の場合、推測点とセンサーまでの距離と
-        # センサー観測値と指の半径の合計の距離の誤差が最小になるような推測点
-        else:
-            range_x = range_data[:, 0]  # 1列目
-            range_r = range_data[:, 1]  # 2列目
-            r = self.finger_radius  # rの値
-            e = 3  # riの誤差
 
-            # 誤差関数
-            def error(params):
-                x, y = params
-                residuals = []
-                for i in range(len(range_x)):
-                    for r_err in [-e, e]:  # 誤差を考慮
-                        ri_err = range_r[i] + r_err
-                        residual = np.sqrt(
-                            (x - range_x[i]) ** 2 + y**2 - (r + ri_err) ** 2
-                        )
-                        residuals.append(residual)
-                return np.sum(np.array(residuals) ** 2)
+        range_x = range_data[:, 0]  # 1列目
+        range_r = range_data[:, 1]  # 2列目
+        r = self.finger_radius  # rの値
+        e = 3  # riの誤差
 
-            # 制約関数
-            # 検知できなかったセンサ範囲を除く制約関数
-            # 左からの制約
-            def left_constraint(params):
-                x, y = params
-                return (
-                    (y * (np.tan(-12.5 * np.pi / 180)))
-                    + min(range_x)
-                    - self.sensor_ratio
-                    - x
-                )
+        # 誤差関数
+        def error(params):
+            x, y = params
+            residuals = []
+            for i in range(len(range_x)):
+                for r_err in [-e, e]:  # 誤差を考慮
+                    ri_err = range_r[i] + r_err
+                    residual = np.sqrt(
+                        (x - range_x[i]) ** 2 + y**2 - (r + ri_err) ** 2
+                    )
+                    residuals.append(residual)
+            return np.sum(np.array(residuals) ** 2)
 
-            # 右からの制約
-            def right_constraint(params):
-                x, y = params
-                return (
-                    (y * (-np.tan(12.5 * np.pi / 180)))
-                    - max(range_x)
-                    + self.sensor_ratio
-                    + x
-                )
-
-            constraints = []
-            if left:
-                constraints.append({"type": "ineq", "fun": left_constraint})
-            if right:
-                constraints.append({"type": "ineq", "fun": right_constraint})
-
-            # 入力領域外を除く制約関数
-            bounds = Bounds([0, 0], [100, 200])
-
-            # 初期値 (観測点の中心を使用)
-            initial_guess = [np.mean(range_x), np.mean(range_r)]
-
-            # 最適化
-            result = minimize(
-                error,
-                initial_guess,
-                bounds=bounds,
-                constraints=constraints,
-                method="SLSQP",
+        # 制約関数
+        # 検知できなかったセンサ範囲を除く制約関数
+        # 左からの制約
+        def left_constraint(params):
+            x, y = params
+            return (
+                (y * (np.tan(-12.5 * np.pi / 180)))
+                + min(range_x)
+                - self.sensor_ratio
+                - x
             )
-            if not result.success:
-                logger.error("解求められんかった")
-            return result
+
+        # 右からの制約
+        def right_constraint(params):
+            x, y = params
+            return (
+                (y * (-np.tan(12.5 * np.pi / 180)))
+                - max(range_x)
+                + self.sensor_ratio
+                + x
+            )
+
+        constraints = []
+        if left:
+            constraints.append({"type": "ineq", "fun": left_constraint})
+        if right:
+            constraints.append({"type": "ineq", "fun": right_constraint})
+
+        # 入力領域外を除く制約関数
+        bounds = Bounds([0, 0], [100, 200])
+
+        # 初期値 (観測点の中心を使用)
+        initial_guess = [np.mean(range_x), np.mean(range_r)]
+
+        # 最適化
+        result = minimize(
+            error,
+            initial_guess,
+            bounds=bounds,
+            constraints=constraints,
+            method="SLSQP",
+        )
+
+        if not result.success:
+            logger.error("解求められんかった")
+        return result
 
     # センサのデータを未検知のセンサごとに分割
 
@@ -361,7 +369,7 @@ class LinerTouch:
 
         for data in result:
 
-            self.calculate_intersections(data)  # result ではなく data を渡す
+            self.split_finger_data(data)
 
     def update_plot(self):
         while not keyboard.is_pressed("g"):
