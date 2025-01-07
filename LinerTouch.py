@@ -41,7 +41,7 @@ class LinerTouch:
         LinerTouch.liner = self
         # LinerTouch が準備できたかを示す
         self.ready = False
-        self.ser = serial.Serial("COM3", 115200)
+        self.ser = serial.Serial("COM9", 115200)
 
         self.mean_pos = [0, 0]
         # センサーの数
@@ -270,14 +270,31 @@ class LinerTouch:
                 result.append(data)
             err_val = []
             for data in result:
-                val = 0
+                fis = []
+                success_flags = []  # successフラグを格納するリスト
                 for d in data:
-                    val += self.filter_inv_solve(d).fun
-                err_val.append(val)
-                logger.info(f"err_val:{val}")
-                logger.info(f"data:{data}")
+                    res = self.filter_inv_solve(d)
+                    fis.append(res)
+                    success_flags.append(res.success)  # successフラグを格納
+
+                # 全てのsuccessフラグがTrueの場合のみerr_valを計算
+                if all(success_flags):
+                    val = sum([f.fun for f in fis])  # 誤差値の計算
+                    err_val.append(val)
+                    logger.info(f"err_val:{val}")
+                    logger.info(f"data:{data}")
+
+            # err_valが空の場合は、全ての分割パターンでfilter_inv_solve()が失敗している
+            if err_val:
+                min_idx = err_val.index(min(err_val))
+                for d in result[min_idx]:
+                    a = list(self.filter_inv_solve(d).x).copy()
+                    self.estimated_data.append(a)
+            else:
+                logger.warning("All filter_inv_solve() failed.")  # 失敗ログを出力
         else:
-            self.filter_inv_solve(range_data)
+            a = list(self.filter_inv_solve(range_data).x).copy()
+            self.estimated_data.append(a)
 
     # 逆問題による推測
     def filter_inv_solve(self, range_data, left=False, right=False):
@@ -295,9 +312,7 @@ class LinerTouch:
             for i in range(len(range_x)):
                 for r_err in [-e, e]:  # 誤差を考慮
                     ri_err = range_r[i] + r_err
-                    residual = np.sqrt(
-                        (x - range_x[i]) ** 2 + y**2 - (r + ri_err) ** 2
-                    )
+                    residual = np.sqrt((x - range_x[i]) ** 2 + y**2 - (r + ri_err) ** 2)
                     residuals.append(residual)
             return np.sum(np.array(residuals) ** 2)
 
@@ -434,7 +449,7 @@ class LinerTouch:
                     self.ax.add_patch(arc1)
                 logger.info(self.estimated_data)
 
-                # 推定位置(交点)のプロット
+                # 推定位置のプロット
                 for estimated_pos in self.estimated_data:
                     self.ax.scatter(
                         estimated_pos[0],
