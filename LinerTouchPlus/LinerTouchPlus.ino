@@ -62,6 +62,7 @@ void setup() {
     delay(10);
 
     sensor[i].init();
+    // sensor[i].writeReg(VL6180X::SYSTEM_FRESH_OUT_OF_RESET, 0x00);
     sensor[i].configureDefault();
     sensor[i].setAddress(HEAD_I2C_ADDRESS + i);  //好きなアドレスに設定
     delay(10);
@@ -83,6 +84,8 @@ void setup() {
       uint8_t ave = sum / CALIBRATE_TIMES;
       uint8_t offset = TARGET_DISTANCE - ave;
       sensor[i].writeReg(VL6180X::SYSRANGE__PART_TO_PART_RANGE_OFFSET, offset);
+      // SerialBT.printf("Sensor %2u: offset->%03u ,\n", i, offset);
+      // Serial.printf("Sensor %2u: offset->%03u ,\n", i, offset);
       SerialBT.printf("%3u,", offset);
       Serial.printf("%3u,", offset);
       delay(10);
@@ -96,8 +99,7 @@ void setup() {
     // sensor[i].writeReg(VL6180X::SYSRANGE__MAX_CONVERGENCE_TIME, 30);
     // sensor[i].writeReg16Bit(VL6180X::SYSALS__INTEGRATION_PERIOD, 50);
     // sensor[i].writeReg(VL6180X::SYSALS__START, 0);
-    sensor[i].writeReg(VL6180X::SYSRANGE__INTERMEASUREMENT_PERIOD, 20);
-    sensor[i].writeReg(VL6180X::READOUT__AVERAGING_SAMPLE_PERIOD, 32);
+    sensor[i].writeReg(VL6180X::SYSRANGE__INTERMEASUREMENT_PERIOD, 10);
 
 
     // stopContinuous() がシングルショット測定をトリガした場合は、
@@ -108,14 +110,18 @@ void setup() {
   Serial.println();
   delay(1000);
 
-  // 40ミリ秒周期のインターリーブ連続モード開始
+  // 100ミリ秒周期のインターリーブ連続モード開始
   for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++)
-    sensor[i].startRangeContinuous(50);
+    sensor[i].startRangeContinuous(30);
 }
 
 void loop() {
   unsigned long start = micros();
   for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++) {
+
+    // ambient[i] = sensor[i].readAmbientContinuous();
+    // range[i] = sensor[i].readRangeContinuousMillimeters();
+    // ambient[i] = sensor[i].readAmbientContinuous();
     range[i] = sensor[i].readRangeContinuousMillimeters();
     if (range[i] == 255 && OUT_OF_RANGE_OUTPUT) {
       SerialBT.print("OoR ");
@@ -129,7 +135,6 @@ void loop() {
       Serial.printf("Sensor %2u: TIMEOUT\n", i);
     }
   }
-
   SerialBT.println();
   Serial.println();
   unsigned long end = micros();

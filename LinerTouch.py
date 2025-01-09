@@ -22,16 +22,10 @@ from sympy import (
     reduce_inequalities,
 )
 from pulp import LpMinimize, LpProblem, LpVariable
-from collections import deque
+from collections import deque, defaultdict
 from itertools import combinations
 
 logger = logging.getLogger(__name__)
-
-# 過去データの中身
-# past_data = [{
-#     "estimated_pos": [5, 50],
-#     "actual_data": [[i, i * 10] for i in range(10)]
-#     },...]
 
 
 class LinerTouch:
@@ -46,7 +40,7 @@ class LinerTouch:
         self.mean_pos = [0, 0]
         # センサーの数
         self.sensor_num = 9
-        self.finger_radius = 7
+        self.finger_radius = 8
         # センサの高さに対しての一個あたりのセンサの横幅のサイズの倍率
         # センサの測定可能距離/センサの横幅=sensor_ratio
         self.sensor_ratio = 10
@@ -56,7 +50,7 @@ class LinerTouch:
         # 指のタッチ時間の閾値
         self.release_threshold = 0.5
         # 保存するデータの数
-        self.past_data_num = 3
+        self.past_data_num = 10
 
         # グラフを描画するかしないか
         self.plot_graph = plot_graph
@@ -80,18 +74,15 @@ class LinerTouch:
         self.ax = None  # axも初期化
         self.past_data = {
             "estimated_data": deque(maxlen=self.past_data_num),
-            "mean_pos": deque(maxlen=self.past_data_num),
-            "min_pos": deque(maxlen=self.past_data_num),
             "actual_data": deque(maxlen=self.past_data_num),
-            "oor_flag": deque(maxlen=self.past_data_num),
             "len": 0,
         }
 
     def get_data(self):
         # gキーが押されるまでループ
         while not keyboard.is_pressed("g"):
-            start_time = time.time()
             if self.ser.in_waiting > 0:  # 読み込めるデータがあるかを確認
+                start_time = time.time()
                 while self.ser.in_waiting:  # 読み込み可能なデータがある間
                     raw_data = (
                         self.ser.readline().decode("utf-8").strip()
@@ -102,28 +93,14 @@ class LinerTouch:
                 self.sensor_num = len(raw_data_list)
                 self.estimated_data = []
                 # データを二次元配列の形式に整える（[インデックス, 数値] の順）
-                self.range_data = np.array(
-                    [
-                        [idx * self.sensor_ratio, int(value)]
-                        for idx, value in enumerate(raw_data_list)
-                        if value.isdigit()
-                    ]
-                )
+                self.range_data = [
+                    [idx * self.sensor_ratio, int(value)]
+                    for idx, value in enumerate(raw_data_list)
+                    if value.isdigit()
+                ]
 
                 # データがある場合
                 if len(self.range_data) > 0:
-                    # センサーの数値が最も小さいものを選択
-                    self.min_pos = min([data[1] for data in self.range_data])
-                    # 閾値以上のデータを除いたセンサーのインデックスの平均を選択
-                    # self.range_data =np.array( [
-                    #     data
-                    #     for data in self.range_data
-                    #     if data[1] - self.min_pos[1] < self.height_threshold
-                    # ])
-
-                    # デバッグ用出力
-                    logger.info(f"Processed range_data: {self.range_data}")
-                    # 生データから位置推定と更新処理
 
                     self.smoothing_filter()
                     if self.ready:
@@ -136,109 +113,73 @@ class LinerTouch:
                     # LinerTouch が準備できたことを示す
                     self.ready = True
                     # データを保存
-                    self.prev_min_pos = self.min_pos.copy()
 
+                    end_time = time.time()
+                    logger.debug(f"Time taken: {end_time - start_time:.6f} seconds")
                 # データがない場合
                 else:
                     pass
-
-            end_time = time.time()
-            logger.debug(f"Time taken: {end_time - start_time:.6f} seconds")
-
-    def culc_mean_pos(self):
-        # y_pos から n 以上離れているペアを削除
-        self.mean_pos = np.mean(self.range_data, axis=0)
 
     # 追加のタイミングが一フレーム遅い
     # estimated_posを求める
     def smoothing_filter(self):
         if self.ready:
             self.prev_estimated_data = self.estimated_data
+        self.add_pastdata(actual_data=self.range_data)
 
-        self.culc_mean_pos()
-        if self.get_pastdata("len") == self.past_data_num:
-            # 指数移動平均の計算
-            # alpha = 0.4
-            # data = [data[0] for data in self.past_data]
-            # ema = np.zeros_like(data, dtype=float)
-            # ema[0] = data[0]
+        # if self.get_pastdata("len") == self.past_data_num:
+        #     smooth_range_dic = {}
+        #     for i in range(self.sensor_num):
+        #         smooth_range_dic[f"sum{i*self.sensor_ratio}"] = 0
+        #         smooth_range_dic[f"num{i*self.sensor_ratio}"] = 0
+        #     for data1 in self.get_pastdata("actual_data"):
+        #         for data2 in data1:
+        #             smooth_range_dic[f"sum{data2[0]}"] += data2[1]
+        #             smooth_range_dic[f"num{data2[0]}"] += 1
+        #     smooth_range_ave_dic = {}
+        #     for i in range(self.sensor_num):
+        #         if smooth_range_dic[f"num{i * self.sensor_ratio}"] > 0:
+        #             smooth_range_ave_dic[i * self.sensor_ratio] = (
+        #                 smooth_range_dic[f"sum{i * self.sensor_ratio}"]
+        #                 / smooth_range_dic[f"num{i * self.sensor_ratio}"]
+        #             )
+        #     smooth_range_data = []
+        #     for idx, value in self.range_data:
+        #         smooth_range_data.append([idx, int(smooth_range_ave_dic[idx])])
+        #     # 平均値を計算
+        #     self.split_x_data(smooth_range_data)
 
-            # for i in range(1, len(data)):
-            #     ema[i] = alpha * data[i] + (1 - alpha) * ema[i - 1]
-            # self.estimated_pos[0] = ema[-1]
+        # else:
+        #     self.split_x_data(self.range_data)
+        self.split_x_data(self.range_data)
 
-            # 移動平均の計算
-            # self.filter_average()
-
-            # ガウシアンフィルタを適用
-            # sigma = 0.5  # 標準偏差（スムージングの強さ）
-            # mean_data = [data[0] for data in self.get_pastdata("mean_pos")].copy()
-            # self.estimated_pos[0] = gaussian_filter1d(mean_data, sigma)[0]
-            self.split_x_data()
-
-        self.add_pastdata(self.mean_pos, self.mean_pos, self.min_pos, self.range_data)
-        # self.add_pastdata(
-        #     self.estimated_data, self.mean_pos, self.min_pos, self.range_data
-        # )
+        self.add_pastdata(estimated_data=self.estimated_data)
 
     def get_pastdata(self, key: str):
         if self.past_data is None:
             pass
         return self.past_data[key]
 
-    # def get_pastdata(estimated_pos=None, mean_pos=None, actual_data=None):
-    #     past_data = {
-    #         "estimated_pos": [].append(),
-    #         "mean_pos": [],
-    #         "actual_data": [],
-    #         "oor_flag": [[v == 255 for v in actual_data]],
-    #         "len": 0,
-    #     }
-    #     return
-
     def add_pastdata(
         self,
         estimated_data: list[list[int]] = None,
-        mean_pos: list[int] = None,
-        min_pos: list[int] = None,
         actual_data: list[list[int]] = None,
     ) -> None:
-        self.past_data["estimated_data"].appendleft(estimated_data)
-        self.past_data["mean_pos"].appendleft(mean_pos)
-        self.past_data["min_pos"].appendleft(min_pos)
-        self.past_data["actual_data"].appendleft([actual_data])
-        self.past_data["oor_flag"].appendleft([v == 255 for v in actual_data])
+        if estimated_data:
+            self.past_data["estimated_data"].appendleft(estimated_data)
+        if actual_data:
+            self.past_data["actual_data"].appendleft(actual_data)
         self.past_data["len"] = len(self.past_data["estimated_data"])
-
-    # def add_pastdata(self, estimated_pos=None):
-    #     pass
-    # 測定データ保管用クラス
-    # class DataFrame(dict):
-    #     def __init__(self):
-    #         super().__init__()
-    #         self["estimated_pos"]
-
-    #     def __len__():
-    #         return
-
-    def display_data(self):
-        if self.get_pastdata("len") > 0 and keyboard.is_pressed("p"):
-            first_mean_pos = self.get_pastdata("mean_pos")[0]
-            first_estimated_pos = self.get_pastdata("estimated_pos")[0]
-            logger.info(f"m_pos: {first_mean_pos[0]:3.2f}, {first_mean_pos[1]:3.2f}")
-            logger.info(
-                f"e_pos: {first_estimated_pos[0]:3.2f}, {first_estimated_pos[1]:3.2f}"
-            )
 
     # 指の本数を推測し最も誤差が少ない推定位置を利用
     def split_finger_data(self, range_data):
         # 指の極大値を格納
-        range_data = np.array(range_data)
+        range_data_np = np.array(range_data)
         if len(range_data) < 2:
             return
         max_idx = []
-        range_x = range_data[:, 0]  # 1列目
-        range_r = range_data[:, 1]  # 2列目
+        range_x = range_data_np[:, 0]  # 1列目
+        range_r = range_data_np[:, 1]  # 2列目
         for i in range(1, len(range_data) - 1):
             if range_r[i - 1] < range_r[i] > range_r[i + 1]:
                 max_idx.append(i)
@@ -247,51 +188,50 @@ class LinerTouch:
         # 2^(極大値の数)回数試行しそのインデックスを2進数に変換し
         # 極大値と同じインデックスの桁数目の数によって左右どちらに振り分けるか決める
         # 極大値が4本でインデックスが0b0110の場合、左右右左となる。
-        logger.info(max_idx)
+        # logger.info(max_idx)
         if len(max_idx) > 0:
-            result = []
+            min_err_data = None
             for b in range(2 ** len(max_idx)):
                 # 二進数の接頭辞の削除
                 bits = format(b, f"0{len(max_idx)}b")
                 prev_idx = 0
-                data = []
+                data1 = []
                 for i in range(len(max_idx)):
                     # 左に
                     if bits[i] == "0":
-                        data.append(range_data[prev_idx:i])
-                        prev_idx = i + 1
+                        data1.append(range_data[prev_idx : max_idx[i] + 1].copy())
+                        prev_idx = max_idx[i] + 1
                     # 右に
                     elif bits[i] == "1":
-                        data.append(range_data[prev_idx : i - 1])
-                        prev_idx = i
+                        data1.append(range_data[prev_idx : max_idx[i]].copy())
+                        prev_idx = max_idx[i]
                     else:
                         logger.error("0と1以外の数字が来た")
-                data.append(range_data[prev_idx:])
-                result.append(data)
-            err_val = []
-            for data in result:
-                fis = []
-                success_flags = []  # successフラグを格納するリスト
-                for d in data:
-                    res = self.filter_inv_solve(d)
-                    fis.append(res)
-                    success_flags.append(res.success)  # successフラグを格納
-
-                # 全てのsuccessフラグがTrueの場合のみerr_valを計算
-                if all(success_flags):
-                    val = sum([f.fun for f in fis])  # 誤差値の計算
-                    err_val.append(val)
-                    logger.info(f"err_val:{val}")
-                    logger.info(f"data:{data}")
-
-            # err_valが空の場合は、全ての分割パターンでfilter_inv_solve()が失敗している
-            if err_val:
-                min_idx = err_val.index(min(err_val))
-                for d in result[min_idx]:
-                    a = list(self.filter_inv_solve(d).x).copy()
-                    self.estimated_data.append(a)
+                data1.append(range_data[prev_idx:].copy())
+                err = 0
+                buf_data = []
+                pass_flag = False
+                for data2 in data1:
+                    fis = self.filter_inv_solve(data2)
+                    if fis.success:
+                        buf_data.append(list(fis.x))
+                        err += fis.fun
+                    else:
+                        pass_flag = True
+                        break
+                if pass_flag:
+                    # logger.info(bits)
+                    # logger.info(max_idx)
+                    # logger.info(data1)
+                    continue
+                if not min_err_data or min_err > err:
+                    min_err = err
+                    min_err_data = buf_data.copy()
+            if min_err_data:
+                self.estimated_data.extend(min_err_data)
             else:
-                logger.warning("All filter_inv_solve() failed.")  # 失敗ログを出力
+                logger.error("解が存在しない")
+
         else:
             a = list(self.filter_inv_solve(range_data).x).copy()
             self.estimated_data.append(a)
@@ -299,22 +239,32 @@ class LinerTouch:
     # 逆問題による推測
     def filter_inv_solve(self, range_data, left=False, right=False):
         # 観測値が1個の場合、観測値から指の半径から推測
-
-        range_x = range_data[:, 0]  # 1列目
-        range_r = range_data[:, 1]  # 2列目
+        range_data_np = np.array(range_data)
+        range_x = range_data_np[:, 0]  # 1列目
+        range_r = range_data_np[:, 1]  # 2列目
         r = self.finger_radius  # rの値
         e = 3  # riの誤差
 
         # 誤差関数
+        # def error(params):
+        #     x, y = params
+        #     residuals = []
+        #     for i in range(len(range_data)):
+        #         for r_err in [-e, e]:  # 誤差を考慮
+        #             ri_err = range_r[i] + r_err
+        #             residual = np.sqrt((x - range_x[i]) ** 2 + y**2 - (r + ri_err) ** 2)
+        #             residuals.append(residual)
+        #     return np.sum(np.array(residuals) ** 2) / len(range_data)
+
         def error(params):
             x, y = params
-            residuals = []
-            for i in range(len(range_x)):
-                for r_err in [-e, e]:  # 誤差を考慮
-                    ri_err = range_r[i] + r_err
-                    residual = np.sqrt((x - range_x[i]) ** 2 + y**2 - (r + ri_err) ** 2)
-                    residuals.append(residual)
-            return np.sum(np.array(residuals) ** 2)
+            sum_squared_error = 0
+            for i in range(len(range_data)):
+                xi = range_x[i]
+                ri = range_r[i]
+                error = (x - xi) ** 2 + y**2 - (ri + r) ** 2
+                sum_squared_error += error**2
+            return sum_squared_error / len(range_data)
 
         # 制約関数
         # 検知できなかったセンサ範囲を除く制約関数
@@ -345,28 +295,26 @@ class LinerTouch:
             constraints.append({"type": "ineq", "fun": right_constraint})
 
         # 入力領域外を除く制約関数
-        bounds = Bounds([0, 0], [100, 200])
 
+        bounds = [(0, self.sensor_num * self.sensor_ratio), (0, self.sensor_height)]
         # 初期値 (観測点の中心を使用)
         initial_guess = [np.mean(range_x), np.mean(range_r)]
-
         # 最適化
         result = minimize(
             error,
             initial_guess,
             bounds=bounds,
-            constraints=constraints,
-            method="SLSQP",
+            # constraints=constraints,
+            # method="SLSQP",
         )
-
         if not result.success:
-            logger.error("解求められんかった")
+            logger.error("解けない" + result.message)
         return result
 
     # センサのデータを未検知のセンサごとに分割
 
-    def split_x_data(self):
-        range_np = np.array(self.range_data)
+    def split_x_data(self, range_data):
+        range_np = range_data
         result = []
         temp_list = []  # 初期化を空リストに変更
         prev_x = range_np[0][0]
@@ -379,11 +327,9 @@ class LinerTouch:
             prev_x = x
 
         if temp_list:  # 最後の temp_list を result に追加
-
             result.append(temp_list)
 
         for data in result:
-
             self.split_finger_data(data)
 
     def update_plot(self):
@@ -422,10 +368,9 @@ class LinerTouch:
 
                 # 円弧と交点のプロット
                 angle_range = [(90 - 12.5) / 180 * np.pi, (90 + 12.5) / 180 * np.pi]
-                for i in range(len(self.range_data) - 1):
+                for i in range(len(self.range_data)):
                     x0, r0 = self.range_data[i]
-                    x1, r1 = self.range_data[i + 1]
-                    r0, r1 = r0 + self.finger_radius, r1 + self.finger_radius
+                    r0 += self.finger_radius
                     # 円弧の描画
                     arc0 = patches.Arc(
                         (x0, 0),
@@ -437,17 +382,6 @@ class LinerTouch:
                         linestyle="--",
                     )
                     self.ax.add_patch(arc0)
-                    arc1 = patches.Arc(
-                        (x1, 0),
-                        2 * r1,
-                        2 * r1,
-                        theta1=np.degrees(angle_range[0]),
-                        theta2=np.degrees(angle_range[1]),
-                        edgecolor="green",
-                        linestyle="--",
-                    )
-                    self.ax.add_patch(arc1)
-                logger.info(self.estimated_data)
 
                 # 推定位置のプロット
                 for estimated_pos in self.estimated_data:
@@ -477,115 +411,6 @@ class LinerTouch:
                 # 描画を更新
                 self.fig.canvas.draw()
                 self.fig.canvas.flush_events()
-
-    # def plot_data(self):
-    #     if not self.plot_graph:
-    #         if self.fig is None:
-    #             """
-    #             matplotlibのグラフを初期化する関数。
-    #             """
-    #             self.fig, self.ax = plt.subplots()
-    #             self.ax.set_aspect("equal")
-    #             self.ax.set_xlim(0, (self.sensor_num - 1) * self.sensor_ratio)
-    #             self.ax.set_ylim(0, self.sensor_height)
-    #             self.ax.set_xlabel("X")
-    #             self.ax.set_ylabel("Y")
-    #             self.ax.set_title("Sensor Data and Estimated Position")
-    #             plt.ion()  # 対話モードをオン
-    #             plt.show()
-    #         else:
-    #             """
-    #             センサーデータと推定位置をプロットする関数。
-    #             """
-
-    #             self.ax.clear()
-
-    #             # センサーデータのプロット
-    #             x_vals = [data[0] for data in self.range_data]
-    #             y_vals = [data[1] for data in self.range_data]
-    #             self.ax.scatter(x_vals, y_vals, color="blue", label="Sensor Data")
-
-    #             # 推定位置のプロット
-    #             for estimated_pos in self.estimated_data:
-    #                 self.ax.scatter(
-    #                     estimated_pos[0],
-    #                     estimated_pos[1],
-    #                     color="red",
-    #                     label="Estimated Position",
-    #                 )
-
-    #                 # 円弧の描画
-    #                 arc = patches.Arc(
-    #                     (estimated_pos[0], 0),
-    #                     2 * self.sensor_ratio,
-    #                     2 * self.sensor_ratio,
-    #                     theta1=90 - 12.5,
-    #                     theta2=90 + 12.5,
-    #                     edgecolor="red",
-    #                     linestyle="--",
-    #                 )
-    #                 self.ax.add_patch(arc)
-
-    #             # グラフの設定
-    #             self.ax.set_aspect("equal")
-    #             self.ax.set_xlim(0, (self.sensor_num - 1) * self.sensor_ratio)
-    #             self.ax.set_ylim(0, self.sensor_height)
-    #             self.ax.set_xlabel("X")
-    #             self.ax.set_ylabel("Y")
-    #             self.ax.set_title("Sensor Data and Estimated Position")
-    #             self.ax.legend()
-
-    #             # 描画を更新
-    #             self.fig.canvas.draw()
-    #             self.fig.canvas.flush_events()
-
-    def calculate_intersections(self, circles):
-        """
-        複数の円の交点を計算し、y座標が最大の点を返す関数。
-
-        Args:
-            circles: 円の情報を含むリスト。各円は [x, r] の形式で、x は中心の x 座標、r は半径。
-
-        Returns:
-            交点のリスト。各交点は [x, y] の形式。
-        """
-
-        if len(circles) < 2:
-            logger.error("少なくとも2つの円が必要です。")
-            return
-
-        angle_range = [(90 - 12.5) / 180 * np.pi, (90 + 12.5) / 180 * np.pi]
-
-        for i in range(len(circles) - 1):
-            x0, r0 = circles[i]
-            x1, r1 = circles[i + 1]
-            r0, r1 = r0 + self.sensor_ratio, r1 + self.sensor_ratio
-            # シンボルの定義
-            x, y = symbols("x y")
-
-            # 方程式の定義 (yを角度から求めるように変更)
-            eq0 = Eq((x - x0) ** 2 + (y - 0) ** 2, r0**2)
-            eq1 = Eq((x - x1) ** 2 + (y - 0) ** 2, r1**2)
-
-            # 方程式を解く
-            solution_eqs = solve([eq0, eq1], (x, y), domain=Reals, real=True)
-
-            # 実数解を抽出し、y座標が最大のものを選択
-            real_sols = []
-            for sol in solution_eqs:
-                if not sol[0].is_real or not sol[1].is_real:  # 虚数解は除外
-                    continue
-                sol_x = float(sol[0])
-                sol_y = float(sol[1])
-
-                # # 角度の範囲をチェック
-                # angle = math.atan2(sol_y, sol_x - x0)
-                # if angle_range[0] <= angle <= angle_range[1]:
-                if sol_y >= 0:
-                    real_sols.append([sol_x, sol_y])
-            if real_sols:
-                estimated_pos = max(real_sols, key=lambda sol: sol[1])
-                self.estimated_data.append(estimated_pos)
 
     # 指のタッチ検知
     def get_touch(self):
@@ -618,83 +443,12 @@ class LinerTouch:
                     self.release_pos = self.prev_estimated_data.copy()
             logger.info(f"tap_flag: {self.tap_flag}")
 
-    # 指のタッチ検知
-    # def get_touch(self):
-    #     # タッチフラグがある場合
-    #     if self.tap_flag:
-    #         # 指が押されていない場合離した際の座標release_posを利用
-    #         self.release_end_time = time.time()
-    #         release_elapsed_time = self.release_end_time - self.release_start_time
-    #         if release_elapsed_time < self.release_threshold:
-    #             if self.estimated_pos[1] - self.min_pos[1] > self.height_threshold:
-    #                 self.tap_flag = False
-    #                 logger.info("tap2_act")
-    #                 if self.tap_callback:
-    #                     self.tap_callback()
-    #         else:
-    #             self.tap_flag = False
-    #         self.estimated_pos = self.release_pos.copy()
-
-    #     # タッチフラグがない場合
-    #     else:
-    #         if self.min_pos[1] - self.prev_min_pos[1] > self.height_threshold:
-    #             self.release_start_time = time.time()
-    #             self.tap_flag = True
-    #             # タッチ予定の座標を記録
-    #             self.release_pos = self.prev_estimated_pos.copy()
-    #     logger.info(f"tap_flag: {self.tap_flag}")
-
-    # def get_touch(self):
-    #     # 指のタッチ検知
-    #     if self.ready:
-    #         # if self.tap_flag:
-    #         #     self.next_pos = self.release_pos
-    #         #     # タップ検知の時間閾値を超えた場合
-    #         #     if (
-    #         #         time.time() - release_start_time
-    #         #         > self.release_threshold
-    #         #     ):
-    #         #         self.tap_flag = False
-    #         # 指が離れた場合
-    #         latest_pos = self.get_pastdata("estimated_pos")[0]
-    #         if (
-    #             self.min_pos[1] - self.prev_min_pos[1] > self.height_threshold
-    #             and self.tap_flag == False
-    #         ):
-    #             self.release_start_time = time.time()
-    #             self.tap_flag = True
-    #             # タッチ予定の座標を記録
-    #             self.release_pos = self.estimated_pos.copy()
-
-    #         # タップのフラグがある場合
-    #         if self.tap_flag == True:
-    #             # 指が押されていない場合離した際の座標release_posを利用
-    #             self.estimated_pos = self.release_pos.copy()
-
-    #             # 指が押された場合
-    #             if self.prev_min_pos[1] - self.min_pos[1] > self.height_threshold:
-
-    #                 self.release_end_time = time.time()
-    #                 release_elapsed_time = (
-    #                     self.release_end_time - self.release_start_time
-    #                 )
-    #                 if release_elapsed_time <= self.release_threshold:
-    #                     self.tap_flag = False
-    #                     if self.tap_callback:
-    #                         self.tap_callback()
-    #             else:
-    #                 # タッチ時間の閾値を超えた場合フラグをオフにする処理
-    #                 if time.time() - self.release_start_time > self.release_threshold:
-    #                     self.tap_flag = False
-    #                 # 指が押されていない間は最後に離した際の座標release_posを利用
-    #         logger.debug(f"tap_flag: {self.tap_flag}")
-
 
 if __name__ == "__main__":
     # ログの設定 - 全てのログレベルを表示するように設定
     logging.basicConfig(
         level=logging.INFO,  # INFOレベルを含む全てのログを表示
-        format="[%(levelname)s] %(name)s: %(message)s",  # フォーマットの設定
+        format="[%(levelname)s] %(name)s:%(lineno)d:%(message)s",  # フォーマットの設定
     )
     liner_touch = LinerTouch()
-    liner_touch.update_callback = liner_touch.display_data
+    # liner_touch.update_callback = liner_touch.display_data
