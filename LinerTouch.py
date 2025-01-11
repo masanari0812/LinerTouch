@@ -237,7 +237,7 @@ class LinerTouch:
             self.estimated_data.append(a)
 
     # 逆問題による推測
-    def filter_inv_solve(self, range_data, left=False, right=False):
+    def filter_inv_solve(self, range_data, left=True, right=True):
         # 観測値が1個の場合、観測値から指の半径から推測
         range_data_np = np.array(range_data)
         range_x = range_data_np[:, 0]  # 1列目
@@ -246,25 +246,26 @@ class LinerTouch:
         e = 3  # riの誤差
 
         # 誤差関数
-        # def error(params):
-        #     x, y = params
-        #     residuals = []
-        #     for i in range(len(range_data)):
-        #         for r_err in [-e, e]:  # 誤差を考慮
-        #             ri_err = range_r[i] + r_err
-        #             residual = np.sqrt((x - range_x[i]) ** 2 + y**2 - (r + ri_err) ** 2)
-        #             residuals.append(residual)
-        #     return np.sum(np.array(residuals) ** 2) / len(range_data)
-
         def error(params):
             x, y = params
             sum_squared_error = 0
             for i in range(len(range_data)):
-                xi = range_x[i]
-                ri = range_r[i]
-                error = (x - xi) ** 2 + y**2 - (ri + r) ** 2
-                sum_squared_error += error**2
-            return sum_squared_error / len(range_data)
+                for r_err in [-e, e]:  # 誤差を考慮
+                    xi = range_x[i]
+                    ri = range_r[i] + r_err
+                    error = np.sqrt((x - xi) ** 2 + y**2) - np.sqrt((ri + r) ** 2)
+                    sum_squared_error += error**2
+                return sum_squared_error / len(range_data)
+
+        # def error(params):
+        #     x, y = params
+        #     sum_squared_error = 0
+        #     for i in range(len(range_data)):
+        #         xi = range_x[i]
+        #         ri = range_r[i]
+        #         error = np.sqrt((x - xi) ** 2 + y**2) - np.sqrt((ri + r) ** 2)
+        #         sum_squared_error += error**2
+        #     return sum_squared_error / len(range_data)
 
         # 制約関数
         # 検知できなかったセンサ範囲を除く制約関数
