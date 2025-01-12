@@ -32,6 +32,7 @@ VL6180X データシートの「連続モードの制限」のセクションと
 #define HEAD_SENSOR 0
 #define TAIL_SENSOR 8
 #define CALIBRATE_TIMES 30
+#define CALIBRATE_CHECK_TIMES 10
 #define TARGET_DISTANCE 50
 #define HEAD_I2C_ADDRESS 0x30
 
@@ -91,11 +92,10 @@ void setup() {
       delay(10);
     }
 
-    // レンジの最大収束時間と ALS の積分時間をそれぞれ 30 ms と 50 ms に短縮し、10 Hz
-    // 動作を可能にする（データシートの表「インターリーブモードの制限（10 Hz 動作）」で示唆されている通り）。
-    // sensor[i].writeReg(VL6180X::SYSRANGE__MAX_CONVERGENCE_TIME, 30);
-    // sensor[i].writeReg16Bit(VL6180X::SYSALS__INTEGRATION_PERIOD, 50);
-    // sensor[i].writeReg(VL6180X::SYSALS__START, 0);
+    // レンジの最大収束時間を短縮する
+    sensor[i].writeReg(VL6180X::SYSRANGE__MAX_CONVERGENCE_TIME, 15);
+    // 積分時間を短縮する
+    sensor[i].writeReg16Bit(VL6180X::SYSALS__INTEGRATION_PERIOD, 30);
     sensor[i].writeReg(VL6180X::SYSRANGE__INTERMEASUREMENT_PERIOD, 20);
     sensor[i].writeReg(VL6180X::READOUT__AVERAGING_SAMPLE_PERIOD, 32);
 
@@ -106,9 +106,20 @@ void setup() {
   }
   SerialBT.println();
   Serial.println();
+  for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++) {
+    uint32_t sum = 0;
+    for (uint8_t j = 0; j < CALIBRATE_CHECK_TIMES; j++) {
+      sum += sensor[i].readRangeSingle();
+    }
+    uint8_t ave = sum / CALIBRATE_CHECK_TIMES;
+    SerialBT.printf("%3d,", TARGET_DISTANCE - ave);
+    Serial.printf("%3d,", TARGET_DISTANCE - ave);
+  }
+  SerialBT.println();
+  Serial.println();
   delay(1000);
 
-  // 40ミリ秒周期のインターリーブ連続モード開始
+  // 50ミリ秒周期のインターリーブ連続モード開始
   for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++)
     sensor[i].startRangeContinuous(50);
 }
