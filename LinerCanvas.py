@@ -2,7 +2,6 @@ from LinerTouch import LinerTouch
 import keyboard
 import tkinter as tk
 import time
-import threading
 import logging
 
 logger = logging.getLogger(__name__)

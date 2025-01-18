@@ -90,6 +90,6 @@ if __name__ == "__main__":
         level=logging.INFO,  # INFOレベルを含む全てのログを表示
         format="[%(levelname)s] %(name)s: %(message)s",  # フォーマットの設定
     )
-# メインプログラム
-app = KanaKey()
-app.mainloop()
+    # メインプログラム
+    app = KanaKey()
+    app.mainloop()

@@ -32,6 +32,7 @@ VL6180X データシートの「連続モードの制限」のセクションと
 #define HEAD_SENSOR 0
 #define TAIL_SENSOR 8
 #define CALIBRATE_TIMES 30
+#define CALIBRATE_CHECK_TIMES 10
 #define TARGET_DISTANCE 50
 #define HEAD_I2C_ADDRESS 0x30
 
@@ -62,7 +63,6 @@ void setup() {
     delay(10);
 
     sensor[i].init();
-    // sensor[i].writeReg(VL6180X::SYSTEM_FRESH_OUT_OF_RESET, 0x00);
     sensor[i].configureDefault();
     sensor[i].setAddress(HEAD_I2C_ADDRESS + i);  //好きなアドレスに設定
     delay(10);
@@ -84,8 +84,6 @@ void setup() {
       uint8_t ave = sum / CALIBRATE_TIMES;
       uint8_t offset = TARGET_DISTANCE - ave;
       sensor[i].writeReg(VL6180X::SYSRANGE__PART_TO_PART_RANGE_OFFSET, offset);
-      // SerialBT.printf("Sensor %2u: offset->%03u ,\n", i, offset);
-      // Serial.printf("Sensor %2u: offset->%03u ,\n", i, offset);
       SerialBT.printf("%3u,", offset);
       Serial.printf("%3u,", offset);
       delay(10);
@@ -94,34 +92,38 @@ void setup() {
       delay(10);
     }
 
-    // レンジの最大収束時間と ALS の積分時間をそれぞれ 30 ms と 50 ms に短縮し、10 Hz
-    // 動作を可能にする（データシートの表「インターリーブモードの制限（10 Hz 動作）」で示唆されている通り）。
-    // sensor[i].writeReg(VL6180X::SYSRANGE__MAX_CONVERGENCE_TIME, 30);
-    // sensor[i].writeReg16Bit(VL6180X::SYSALS__INTEGRATION_PERIOD, 50);
-    // sensor[i].writeReg(VL6180X::SYSALS__START, 0);
-    sensor[i].writeReg(VL6180X::SYSRANGE__INTERMEASUREMENT_PERIOD, 10);
-
-
+    sensor[i].writeReg(VL6180X::SYSRANGE__MAX_CONVERGENCE_TIME, 0x50);  // 例: 80ms
+    sensor[i].writeReg(VL6180X::SYSALS__INTEGRATION_PERIOD, 0x64);      // 例: 100ms
     // stopContinuous() がシングルショット測定をトリガした場合は、
     // 測定が完了するまで待つ。
     delay(10);
   }
   SerialBT.println();
   Serial.println();
-  delay(1000);
+  for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++) {
+    uint32_t sum = 0;
+    for (uint8_t j = 0; j < CALIBRATE_CHECK_TIMES; j++) {
+      sum += sensor[i].readRangeSingle();
+    }
+    uint8_t ave = sum / CALIBRATE_CHECK_TIMES;
+    SerialBT.printf("%3d,", TARGET_DISTANCE - ave);
+    Serial.printf("%3d,", TARGET_DISTANCE - ave);
+  }
+  SerialBT.println();
+  Serial.println();
+  delay(100);
+  // 積分時間と収束時間を増加
 
-  // 100ミリ秒周期のインターリーブ連続モード開始
-  for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++)
-    sensor[i].startRangeContinuous(30);
+  // 50ミリ秒周期のインターリーブ連続モード開始
+  for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++) {
+    delay(200 / NUM_SENSOR);
+    sensor[i].startRangeContinuous(200);
+  }
 }
 
 void loop() {
   unsigned long start = micros();
   for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++) {
-
-    // ambient[i] = sensor[i].readAmbientContinuous();
-    // range[i] = sensor[i].readRangeContinuousMillimeters();
-    // ambient[i] = sensor[i].readAmbientContinuous();
     range[i] = sensor[i].readRangeContinuousMillimeters();
     if (range[i] == 255 && OUT_OF_RANGE_OUTPUT) {
       SerialBT.print("OoR ");
@@ -135,6 +137,7 @@ void loop() {
       Serial.printf("Sensor %2u: TIMEOUT\n", i);
     }
   }
+
   SerialBT.println();
   Serial.println();
   unsigned long end = micros();

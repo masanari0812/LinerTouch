@@ -117,7 +117,7 @@ void setup() {
   }
   SerialBT.println();
   Serial.println();
-  delay(1000);
+  delay(100);
 
   // 50ミリ秒周期のインターリーブ連続モード開始
   for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++)
