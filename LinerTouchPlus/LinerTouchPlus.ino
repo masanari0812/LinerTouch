@@ -28,9 +28,9 @@ VL6180X データシートの「連続モードの制限」のセクションと
 #include "BluetoothSerial.h"
 
 #define MAX_NUM_SENSOR 10
-#define NUM_SENSOR 9
+#define NUM_SENSOR 10
 #define HEAD_SENSOR 0
-#define TAIL_SENSOR 8
+#define TAIL_SENSOR 9
 #define CALIBRATE_TIMES 30
 #define CALIBRATE_CHECK_TIMES 10
 #define TARGET_DISTANCE 50

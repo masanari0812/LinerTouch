@@ -71,23 +71,15 @@ class GetData_exp1(tk.Tk):
             self.label.config(text=f"recording")
             self.max_count = int(self.count_max_box.get())
             if self.count < self.max_count:
-                line = []
-                estimated_data = self.liner.estimated_data
                 range_data = self.liner.range_data
-                # for i in range(self.max_finger):
-                #     if i>len(estimated_data):
-                #         line.append(estimated_data[i])
-                #     else:
-                #         line.append([])
-                line.extend(estimated_data)
-                while len(line) < self.max_finger:
-                    line.append([])
-                line.extend(range_data)
-                self.record_csv(line)
+                estimated_data = self.liner.estimated_data
+                self.range_writer.writerow(range_data)
+                self.estimated_writer.writerow(estimated_data)
                 self.count += 1
             else:
                 self.rec_flag = False
-                self.f.close()
+                self.range_f.close()
+                self.estimated_f.close()
                 return
 
         else:
@@ -124,15 +116,16 @@ class GetData_exp1(tk.Tk):
 
         # 親ディレクトリのパスを取得
         parent_dir = os.path.dirname(current_file)
-        csv_path = os.path.join(
-            parent_dir, "data", "exp1", f"{value0}+{value1}x{value2}.csv"
+        range_csv_path = os.path.join(
+            parent_dir, "data", "exp1_", f"{value0}+{value1}x{value2}_range.csv"
         )
-        self.f = open(csv_path, "w", encoding="utf-8", newline="")
-        self.writer = csv.writer(self.f)
-        self.record_csv([value0, value1, value2])
-
-    def record_csv(self, data_line):
-        self.writer.writerow(data_line)
+        estimated_csv_path = os.path.join(
+            parent_dir, "data", "exp1_", f"{value0}+{value1}x{value2}_estimated.csv"
+        )
+        self.range_f = open(range_csv_path, "w", encoding="utf-8", newline="")
+        self.estimated_f = open(estimated_csv_path, "w", encoding="utf-8", newline="")
+        self.range_writer = csv.writer(self.range_f)
+        self.estimated_writer = csv.writer(self.estimated_f)
 
 
 if __name__ == "__main__":

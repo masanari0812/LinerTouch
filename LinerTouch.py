@@ -9,6 +9,17 @@ from scipy import signal
 from collections import deque, defaultdict
 from functools import wraps
 from matplotlib import patches
+from sympy import (
+    symbols,
+    Eq,
+    solve,
+    Reals,
+    RR,
+    im,
+    evalf,
+    solve_univariate_inequality,
+    reduce_inequalities,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -110,8 +121,8 @@ class LinerTouch:
                 # data = self.smoothing_filter()
                 self.split_x_data(self.range_data)
 
-                # for data in self.estimated_data:
-                #     logger.info(f"est_pos:{data[0]:.0f},{data[1]:.0f}")
+                for data in self.estimated_data:
+                    logger.info(f"est_pos:{data[0]:.0f},{data[1]:.0f}")
 
                 # LinerTouch が準備できたことを示す
                 self.ready = True
@@ -175,6 +186,60 @@ class LinerTouch:
         self.past_data["len"] = len(self.past_data["estimated_data"])
 
     # 指の本数を推測し最も誤差が少ない推定位置を利用
+    # @timeit
+    # def split_finger_data(self, range_data):
+    #     # 指の極大値を格納
+    #     range_data_np = np.array(range_data)
+    #     if len(range_data) < 2:
+    #         return
+    #     max_idx = []
+    #     range_x = range_data_np[:, 0]  # 1列目
+    #     range_r = range_data_np[:, 1]  # 2列目
+    #     for i in range(1, len(range_data) - 1):
+    #         if range_r[i - 1] < range_r[i] > range_r[i + 1]:
+    #             max_idx.append(i)
+
+    #     self.min_err = None
+    #     self.min_left = None
+    #     self.min_right = None
+    #     self.count = 0
+
+    #     def store_min(idx):
+    #         # split_finger_dataの変数にアクセスできるように
+    #         left = self.filter_inv_solve(range_data[:idx])
+    #         right = self.filter_inv_solve(range_data[idx:])
+    #         # 計算成功していなければ終了
+    #         # if not left.success or not right.success:
+    #         # return
+    #         # 値が無ければ比較無しで代入
+    #         if not self.min_err:
+    #             self.min_left = left
+    #             self.min_right = right
+    #             return
+    #         # 現状の最小値と比較し現状以下のものがあれば更新
+    #         err = left.fun + right.fun
+    #         if err < self.min_err:
+    #             self.min_left = left
+    #             self.min_right = right
+    #         logger.info(self.count)
+    #         return
+
+    #     if len(max_idx) > 0:
+    #         for idx in max_idx:
+    #             # 左に振り分け
+    #             store_min(idx + 1)
+    #             # 右に振り分け
+    #             store_min(idx)
+    #         # if not min_err:
+    #         #     logger.error("計算失敗してて草")
+    #         #     raise AttributeError("計算失敗してて草")
+    #         self.estimated_data.append(self.min_left.x.tolist())
+    #         self.estimated_data.append(self.min_right.x.tolist())
+
+    #     else:
+    #         center = self.lr_min_inv(range_data)
+    #         self.estimated_data.append(center.x.tolist())
+
     @timeit
     def split_finger_data(self, range_data):
         # 指の極大値を格納
@@ -258,6 +323,17 @@ class LinerTouch:
         range_data_np = np.array(range_data)
         range_x = range_data_np[:, 0]  # 1列目
         range_r = range_data_np[:, 1]  # 2列目
+        min_r = min(range_r)
+        range_data = [
+            [x, r]
+            for x, r in range_data
+            if r
+            <= min_r + self.sensor_ratio + self.finger_radius * (len(range_data) / 2)
+        ]
+        range_data_np = np.array(range_data)
+        range_x = range_data_np[:, 0]  # 1列目
+        range_r = range_data_np[:, 1]  # 2列目
+
         r = self.finger_radius  # rの値
         e = 0  # riの誤差
 
@@ -317,7 +393,14 @@ class LinerTouch:
             (0, self.sensor_height),
         ]
         # 初期値 (観測点の中心を使用)
+        # rd = int(len(range_data) / 2)
+        # initial_guess = self.calculate_intersections(range_data[rd : rd + 2])
+        # if initial_guess == None:
+        #     initial_guess = [np.mean(range_x), np.mean(range_r)]
+        # else:
+        #     pass
         initial_guess = [np.mean(range_x), np.mean(range_r)]
+
         # 最適化
         result = minimize(
             error,
@@ -326,8 +409,15 @@ class LinerTouch:
             # constraints=constraints,
             method="SLSQP",
         )
+        result.range_x = range_x
         if not result.success:
             logger.error("解けない" + result.message)
+
+        # if result.fun == 0:
+        #     logger.error("誤差0" + result.message)
+        # else:
+        #     logger.info(result.x)
+        #     logger.info(result.fun)
 
         return result
 
@@ -462,6 +552,59 @@ class LinerTouch:
                     self.hold_data = self.estimated_data
                     logger.info("リリース")
                     self.tap_flag = True
+
+    # @timeit
+    # def calculate_intersections(self, range_data):
+    #     """
+    #     複数の円の交点を計算し、y座標が最大の点を返す関数。
+
+    #     Args:
+    #         circles: 円の情報を含むリスト。各円は [x, r] の形式で、x は中心の x 座標、r は半径。
+
+    #     Returns:
+    #         交点のリスト。各交点は [x, y] の形式。
+    #     """
+
+    #     # 観測値が1個の場合、観測値から指の半径から推測
+    #     r = self.finger_radius  # rの値
+    #     # e = 0  # riの誤差
+
+    #     if len(range_data) < 2:
+    #         logger.error("2つのrange_dataが必要です。")
+    #         return None
+
+    #     angle_range = [(90 - 12.5) / 180 * np.pi, (90 + 12.5) / 180 * np.pi]
+
+    #     x0, r0 = range_data[0]
+    #     x1, r1 = range_data[1]
+    #     r0, r1 = r0 + r, r1 + r
+    #     # シンボルの定義
+    #     x, y = symbols("x y")
+
+    #     # 方程式の定義 (yを角度から求めるように変更)
+    #     eq0 = Eq((x - x0) ** 2 + (y - 0) ** 2, r0**2)
+    #     eq1 = Eq((x - x1) ** 2 + (y - 0) ** 2, r1**2)
+
+    #     # 方程式を解く
+    #     solution_eqs = solve([eq0, eq1], (x, y), domain=Reals, real=True)
+
+    #     # 実数解を抽出し、y座標が最大のものを選択
+    #     real_sols = []
+    #     for sol in solution_eqs:
+    #         if not sol[0].is_real or not sol[1].is_real:  # 虚数解は除外
+    #             continue
+    #         sol_x = float(sol[0])
+    #         sol_y = float(sol[1])
+
+    #         # # 角度の範囲をチェック
+    #         # angle = math.atan2(sol_y, sol_x - x0)
+    #         # if angle_range[0] <= angle <= angle_range[1]:
+    #         if sol_y >= 0:
+    #             real_sols.append([sol_x, sol_y])
+    #     if real_sols:
+    #         estimated_pos = max(real_sols, key=lambda sol: sol[1])
+    #         return estimated_pos
+    #     return None
 
 
 if __name__ == "__main__":
