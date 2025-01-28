@@ -1,0 +1,17 @@
+[
+  {
+    "Sourcefile": null,
+    "Include": "",
+    "Includepath": "C:\\Users\\masanari\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.1.1\\cores\\esp32"
+  },
+  {
+    "Sourcefile": null,
+    "Include": "",
+    "Includepath": "C:\\Users\\masanari\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.1.1\\variants\\esp32"
+  },
+  {
+    "Sourcefile": "C:\\Users\\masanari\\Desktop\\Files\\Git\\LinerTouch\\LinerTouch\\build\\sketch\\testino.ino.cpp",
+    "Include": "",
+    "Includepath": null
+  }
+]

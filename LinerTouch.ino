@@ -27,10 +27,10 @@ VL6180X データシートの「連続モードの制限」のセクションと
 #include <VL6180X.h>
 #include "BluetoothSerial.h"
 
-#define MAX_NUM_SENSOR 10
-#define NUM_SENSOR 9
 #define HEAD_SENSOR 0
-#define TAIL_SENSOR 8
+#define TAIL_SENSOR 9
+#define MAX_NUM_SENSOR 10
+#define NUM_SENSOR TAIL_SENSOR - HEAD_SENSOR + 1
 #define CALIBRATE_TIMES 30
 #define CALIBRATE_CHECK_TIMES 10
 #define TARGET_DISTANCE 50
@@ -45,7 +45,6 @@ VL6180X データシートの「連続モードの制限」のセクションと
 BluetoothSerial SerialBT;
 
 uint8_t range[NUM_SENSOR];
-uint8_t ambient[NUM_SENSOR];
 VL6180X sensor[NUM_SENSOR];
 uint8_t pin[MAX_NUM_SENSOR] = { 4, 5, 12, 13, 14, 15, 16, 17, 18, 19 };
 uint8_t num[NUM_SENSOR];
@@ -120,8 +119,10 @@ void setup() {
   delay(100);
 
   // 50ミリ秒周期のインターリーブ連続モード開始
-  for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++)
+  for (uint8_t i = HEAD_SENSOR; i <= TAIL_SENSOR; i++) {
+    delay(50 / NUM_SENSOR);
     sensor[i].startRangeContinuous(50);
+  }
 }
 
 void loop() {
