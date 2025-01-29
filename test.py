@@ -1,142 +1,104 @@
-import csv
-import os
-import logging
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from numba import jit
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(levelname)s] %(name)s:%(lineno)d:%(message)s",
-)
-
-
-def convert_csv_to_numpy_array(arg0, arg1, arg2=0):
+@jit
+def mandelbrot(c, max_iter):
     """
-    CSVファイルからデータを読み込み、エラー率、エラー回数、距離の平均を計算する関数
+    マンデルブロ集合を計算する関数
 
     Args:
-        arg0: センサーとシリンダー間の距離
-        arg1: シリンダー間の距離
-        arg2: 使用されていません (デフォルトは0)
+      c: 複素数
+      max_iter: 最大反復回数
 
     Returns:
-        tuple: (エラー率, エラー回数, 距離の平均)
+      発散するまでの反復回数
     """
-    result = []
-    current_file = os.path.abspath(__file__)
-    parent_dir = os.path.dirname(current_file)
-    value0 = arg0
-    value1 = arg1
-    value2 = arg2
-    file_path = os.path.join(
-        parent_dir, "data", "exp1_", f"{value0}+{value1}x{value2}_estimated.csv"
-    )
+    z = 0
+    n = 0
+    while abs(z) <= 2 and n < max_iter:
+        z = z * z + c
+        n += 1
+    return n
 
-    error = 0
-    with open(file_path, "r") as file:
-        reader = csv.reader(file)
-        result = []
-        for row in reader:
-            temp = []
-            try:
-                item0 = row[0].strip("[]")
-                dist0 = np.sqrt(
-                    ((20 - [float(n) for n in item0.split(", ")][0]) ** 2)
-                    + ((arg0 - [float(n) for n in item0.split(", ")][1]) ** 2)
-                )
-                temp.append(dist0)
-                item1 = row[1].strip("[]")
-                dist1 = np.sqrt(
-                    ((20 + arg1 - [float(n) for n in item1.split(", ")][0]) ** 2)
-                    + ((arg0 - [float(n) for n in item1.split(", ")][1]) ** 2)
-                )
-                temp.append(dist1)
-            except IndexError:
-                error += 1
-                continue
+def create_fractal(min_x, max_x, min_y, max_y, image_size, max_iter):
+    """
+    マンデルブロ集合を画像として生成する関数
 
-            if len(temp) == 2:
-                result.append(temp)
-    with open(file_path, "r") as file:
-        reader = csv.reader(file)
-        rows = list(reader)
-        row_count = len(rows)
-    error_rate = f"{error / row_count * 100:.2f}%" if row_count > 0 else "N/A"
-    error_count = f"{error}"
-    distance_mean = f"{np.mean(np.array(result)):.2f}mm" if result else "N/A"
+    Args:
+      min_x: x軸の最小値
+      max_x: x軸の最大値
+      min_y: y軸の最小値
+      max_y: y軸の最大値
+      image_size: 画像サイズ (タプル)
+      max_iter: 最大反復回数
 
-    return error_rate, error_count, distance_mean
+    Returns:
+      マンデルブロ集合の画像 (NumPy配列)
+    """
+    height, width = image_size
+    pixel_size_x = (max_x - min_x) / width
+    pixel_size_y = (max_y - min_y) / height
+    x, y = np.mgrid[min_x:max_x:pixel_size_x, min_y:max_y:pixel_size_y]
+    c = x + y * 1j
+    fractal = np.frompyfunc(mandelbrot, 2, 1)(c, max_iter).astype(np.float64)
+    return fractal
 
 
-# 表のデータ
-data = []
-rowlabels = []
-for idx0 in range(25, 175, 25):
-    rowlabels.append(idx0)
-    temp = []
-    collabels = []
-    for idx1 in range(20, 60, 10):
-        collabels.append(idx1)
-        error_rate, error_count, distance_mean = convert_csv_to_numpy_array(idx0, idx1)
-        temp.append([error_rate, error_count, distance_mean])
-    data.append(temp)
+def zoom_fractal(fractal, center_x, center_y, zoom_level, image_size):
+    """
+    マンデルブロ集合をズームする関数
 
-# 表を作成
-fig, ax = plt.subplots()
-ax.axis("off")
+    Args:
+      fractal: ズーム前のマンデルブロ集合の画像 (NumPy配列)
+      center_x: ズーム中心のx座標
+      center_y: ズーム中心のy座標
+      zoom_level: ズームレベル
+      image_size: 画像サイズ (タプル)
 
-# セルデータのフォーマットを変更
-cell_text = []
-for row in data:
-    cell_row = []
-    for error_rate, error_count, distance_mean in row:
-        cell_row.append(f"{error_rate}\n({error_count})\n{distance_mean}")
-    cell_text.append(cell_row)
+    Returns:
+      ズーム後のマンデルブロ集合の画像 (NumPy配列)
+    """
+    height, width = image_size
+    x_range = 3 / zoom_level
+    y_range = 3 / zoom_level
+    min_x = center_x - x_range / 2
+    max_x = center_x + x_range / 2
+    min_y = center_y - y_range / 2
+    max_y = center_y + y_range / 2
+    zoomed_fractal = create_fractal(min_x, max_x, min_y, max_y, image_size, 1000)
+    return zoomed_fractal
 
-table = ax.table(
-    cellText=cell_text,
-    colLabels=collabels,
-    rowLabels=rowlabels,
-    loc="center",
-    cellLoc="center",
-)
 
-# Text above columns
-fig.text(
-    0.5,
-    0.95,
-    "Distance between cylinders (n=300)",
-    ha="center",
-    va="center",
-    fontsize=16,
-    fontweight="bold",
-)
+def update(frame):
+    """
+    アニメーションのフレームを更新する関数
 
-# Text left of rows
-fig.text(
-    0.05,
-    0.5,
-    "Distance between \nsensor and cylinder",
-    ha="center",
-    va="center",
-    fontsize=16,
-    fontweight="bold",
-    rotation="vertical",
-)
+    Args:
+      frame: フレーム番号
 
-# Adjust layout for better spacing
-plt.subplots_adjust(left=0.2, top=0.8)
+    Returns:
+      更新された画像
+    """
+    global zoom_level, center_x, center_y
+    zoom_level *= 1.05  # ズームレベルを徐々に増加
+    zoomed_fractal = zoom_fractal(fractal, center_x, center_y, zoom_level, image_size)
+    img.set_array(zoomed_fractal)
+    return (img,)
 
-# 表の書式設定
-table.auto_set_font_size(False)
-table.set_fontsize(10)
 
-# セルの高さを自動調整
-table.auto_set_column_width(col=list(range(len(collabels))))
-for (row, col), cell in table.get_celld().items():
-    if row == 0 or col == -1:
-        continue  # Header and row labels are skipped
-    cell.set_height(0.15)  # 高さをさらに調整
+# 初期設定
+image_size = (500, 500)
+fractal = create_fractal(-2.0, 1.0, -1.5, 1.5, image_size, 1000)
+center_x = -0.75  # ズーム中心のx座標
+center_y = 0.0  # ズーム中心のy座標
+zoom_level = 1  # 初期ズームレベル
 
+# アニメーションの設定
+fig = plt.figure()
+img = plt.imshow(fractal, cmap="hot", interpolation="nearest")
+ani = FuncAnimation(fig, update, frames=range(1000), interval=50, blit=True)
+
+# アニメーションの表示
 plt.show()
