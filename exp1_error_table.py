@@ -61,13 +61,15 @@ def convert_csv_to_numpy_array(arg0, arg1, arg2=0):
 data = []
 error_rates = []
 distance_means = []
+collabels = []
 rowlabels = []
-for idx0 in range(25, 175, 25):
-    rowlabels.append(f"{idx0}mm")
+for idx1 in range(20, 60, 10):  # arg1 を縦方向に
+    rowlabels.append(f"{idx1}mm")
+    rowlabels.append("")  # 2行分の高さを確保
     temp = []
-    collabels = []
-    for idx1 in range(20, 60, 10):
-        collabels.append(f"{idx1}mm")
+    for idx0 in range(25, 175, 25):  # arg0 を横方向に
+        if idx1 == 20:
+            collabels.append(f"{idx0}mm")
         error_rate, error_count, distance_mean = convert_csv_to_numpy_array(idx0, idx1)
         temp.append([error_rate, error_count, distance_mean])
         if error_rate is not None:
@@ -88,8 +90,7 @@ ax.axis("off")
 
 # セルデータのフォーマットを変更（2行分のデータを用意）
 cell_text = []
-new_rowlabels = []
-for i, row in enumerate(data):
+for row in data:
     cell_row1 = []
     cell_row2 = []
     for error_rate, error_count, distance_mean in row:
@@ -97,15 +98,12 @@ for i, row in enumerate(data):
         cell_row2.append(f"{distance_mean:.2f}mm" if distance_mean is not None else "N/A")
     cell_text.append(cell_row1)
     cell_text.append(cell_row2)
-    
-    new_rowlabels.append(rowlabels[i])  # 元のラベル
-    new_rowlabels.append("")  # 空のラベルで調整
 
 # テーブル作成
 table = ax.table(
     cellText=cell_text,
     colLabels=collabels,
-    rowLabels=new_rowlabels,
+    rowLabels=rowlabels,
     loc="center",
     cellLoc="center",
 )
@@ -115,10 +113,10 @@ for i, row in enumerate(data):
     for j, (error_rate, _, distance_mean) in enumerate(row):
         if error_rate is not None:
             color = cmap_error(norm_error(error_rate) * 0.8)
-            table[i * 2 + 1, j].set_facecolor(color)  # 修正: 正しい行に色を適用
+            table[i * 2, j].set_facecolor(color)
         if distance_mean is not None:
             color = cmap_distance(norm_distance(distance_mean) * 0.8)
-            table[i * 2 + 2, j].set_facecolor(color)  # 修正: 正しい行に色を適用
+            table[i * 2 + 1, j].set_facecolor(color)
 
 # レイアウト調整
 plt.subplots_adjust(left=0.2, top=0.8)
@@ -130,6 +128,9 @@ table.set_fontsize(10)
 # セルの高さを調整
 table.auto_set_column_width(col=list(range(len(collabels))))
 for (row, col), cell in table.get_celld().items():
-    cell.set_height(0.08)  # セルの高さを調整
+    if col == -1:  # Row labels
+        cell.set_height(0.16)  # 2行分の高さ
+    else:
+        cell.set_height(0.08)  # 通常のセル高さ
 
 plt.show()

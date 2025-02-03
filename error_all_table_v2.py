@@ -12,6 +12,7 @@ logging.basicConfig(
     format="[%(levelname)s] %(name)s:%(lineno)d:%(message)s",
 )
 
+
 def convert_csv_to_numpy_array(arg0, arg1, arg2=0):
     result = []
     current_file = os.path.abspath(__file__)
@@ -19,7 +20,7 @@ def convert_csv_to_numpy_array(arg0, arg1, arg2=0):
     file_path = os.path.join(
         parent_dir, "data", "exp1_", f"{arg0}+{arg1}x{arg2}_estimated.csv"
     )
-    
+
     error = 0
     with open(file_path, "r") as file:
         reader = csv.reader(file)
@@ -42,20 +43,21 @@ def convert_csv_to_numpy_array(arg0, arg1, arg2=0):
             except IndexError:
                 error += 1
                 continue
-            
+
             if len(temp) == 2:
                 result.append(temp)
-    
+
     with open(file_path, "r") as file:
         reader = csv.reader(file)
         rows = list(reader)
         row_count = len(rows)
-    
+
     error_rate = (error / row_count * 100) if row_count > 0 else None
     error_count = error
     distance_mean = np.mean(np.array(result)) if result else None
-    
+
     return error_rate, error_count, distance_mean
+
 
 # 表のデータ
 data = []
@@ -94,10 +96,12 @@ for i, row in enumerate(data):
     cell_row2 = []
     for error_rate, error_count, distance_mean in row:
         cell_row1.append(f"{error_rate:.2f}%" if error_rate is not None else "N/A")
-        cell_row2.append(f"{distance_mean:.2f}mm" if distance_mean is not None else "N/A")
+        cell_row2.append(
+            f"{distance_mean:.2f}mm" if distance_mean is not None else "N/A"
+        )
     cell_text.append(cell_row1)
     cell_text.append(cell_row2)
-    
+
     new_rowlabels.append(rowlabels[i])  # 元のラベル
     new_rowlabels.append("")  # 空のラベルで調整
 

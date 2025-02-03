@@ -10,11 +10,11 @@ logger = logging.getLogger(__name__)
 class LinerCanvas(tk.Tk):  # tk.Tk を継承
     def __init__(self):
         super().__init__()  # 親クラス (tk.Tk) の初期化を呼び出す
-        self.liner = LinerTouch(plot_graph=False)
+        self.liner = LinerTouch(plot_graph=True)
         while not self.liner.ready:
             time.sleep(0.1)
 
-        self.canvas_width = 900
+        self.canvas_width = 1500
         self.canvas_height = 900
         self.x_rate = self.canvas_width / (
             self.liner.sensor_num * self.liner.sensor_ratio
@@ -26,11 +26,10 @@ class LinerCanvas(tk.Tk):  # tk.Tk を継承
         )
         self.canvas.pack()
         self.liner.update_callback = self.render_loop
-        self.liner.tap_callback = self.draw_tap_point
+        # self.liner.tap_callback = self.draw_tap_point
 
     def render_loop(self):
-        if keyboard.is_pressed("shift"):
-            self.canvas.delete("all")
+        self.canvas.delete("all")
         # self.erace_point()
         self.draw_point()
         # self.draw_line()
@@ -53,36 +52,31 @@ class LinerCanvas(tk.Tk):  # tk.Tk を継承
             )
 
     # 指定された位置 (x, y) に目印の点を描画
-    def draw_point(self, color="red", size=3):
-        estimated_pos = self.liner.estimated_data
-        x = estimated_pos[0] * self.x_rate
-        y = estimated_pos[1] * self.y_rate
-        self.canvas.create_oval(
-            x - size, y - size, x + size, y + size, fill=color, outline=color
-        )
+    def draw_point(self, size=30):
+        for pos in self.liner.estimated_data:
+            idx = self.liner.estimated_data.index(pos)
+            if idx < 2:
+                x = pos[0] * self.x_rate
+                y = pos[1] * self.y_rate
+                if idx == 0:
+                    color = "blue"
+                else:
+                    color = "red"
+                self.canvas.create_oval(
+                    x - size, y - size, x + size, y + size, fill=color, outline=color
+                )
 
     # 指定された位置 (x, y) にクリック目印の点を描画
-    def draw_tap_point(self, color="blue", size=10):
-        estimated_pos = self.liner.estimated_data
-        x = estimated_pos[0] * self.x_rate
-        y = estimated_pos[1] * self.y_rate
-        self.canvas.create_oval(
-            x - size, y - size, x + size, y + size, fill=color, outline=color
-        )
-
-    def erace_point(self, color="white", size=3):
-        prev_pos = self.liner.prev_estimated_data
-        x = prev_pos[0] * self.x_rate
-        y = prev_pos[1] * self.y_rate
+    def draw_tap_point(self, color="green", size=10):
+        pos = self.liner.estimated_data[0]
+        x = pos[0] * self.x_rate
+        y = pos[1] * self.y_rate
         self.canvas.create_oval(
             x - size, y - size, x + size, y + size, fill=color, outline=color
         )
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,  # INFOレベルを含む全てのログを表示
-        format="[%(levelname)s] %(name)s: %(message)s",  # フォーマットの設定
-    )
+
     lc = LinerCanvas()
     lc.mainloop()  # Tkinterのメインループを開始

@@ -13,53 +13,57 @@ class KanaKeyboard:
 
         self.kana_map = {
             (0, 0): "あ",
-            (1, 0): "い",
-            (2, 0): "う",
-            (3, 0): "え",
-            (4, 0): "お",
-            (0, 1): "か",
+            (0, 1): "い",
+            (0, 2): "う",
+            (0, 3): "え",
+            (0, 4): "お",
+            (1, 0): "か",
             (1, 1): "き",
-            (2, 1): "く",
-            (3, 1): "け",
-            (4, 1): "こ",
-            (0, 2): "さ",
-            (1, 2): "し",
+            (1, 2): "く",
+            (1, 3): "け",
+            (1, 4): "こ",
+            (2, 0): "さ",
+            (2, 1): "し",
             (2, 2): "す",
-            (3, 2): "せ",
-            (4, 2): "そ",
-            (0, 3): "た",
-            (1, 3): "ち",
-            (2, 3): "つ",
+            (2, 3): "せ",
+            (2, 4): "そ",
+            (3, 0): "た",
+            (3, 1): "ち",
+            (3, 2): "つ",
             (3, 3): "て",
-            (4, 3): "と",
-            (0, 4): "な",
-            (1, 4): "に",
-            (2, 4): "ぬ",
-            (3, 4): "ね",
+            (3, 4): "と",
+            (4, 0): "な",
+            (4, 1): "に",
+            (4, 2): "ぬ",
+            (4, 3): "ね",
             (4, 4): "の",
-            (0, 5): "は",
-            (1, 5): "ひ",
-            (2, 5): "ふ",
-            (3, 5): "へ",
-            (4, 5): "ほ",
-            (0, 6): "ま",
-            (1, 6): "み",
-            (2, 6): "む",
-            (3, 6): "め",
-            (4, 6): "も",
-            (0, 7): "や",
-            (1, 7): "ゆ",
-            (2, 7): "よ",
-            (0, 8): "ら",
-            (1, 8): "り",
-            (2, 8): "る",
-            (3, 8): "れ",
-            (4, 8): "ろ",
-            (0, 9): "わ",
-            (1, 9): "を",
-            (2, 9): "ん",
+            (5, 0): "は",
+            (5, 1): "ひ",
+            (5, 2): "ふ",
+            (5, 3): "へ",
+            (5, 4): "ほ",
+            (6, 0): "ま",
+            (6, 1): "み",
+            (6, 2): "む",
+            (6, 3): "め",
+            (6, 4): "も",
+            (7, 0): "や",
+            (7, 1): "ゆ",
+            (7, 2): "よ",
+            (8, 0): "ら",
+            (8, 1): "り",
+            (8, 2): "る",
+            (8, 3): "れ",
+            (8, 4): "ろ",
+            (9, 0): "わ",
+            (9, 1): "を",
+            (9, 2): "ん",
         }
-        # self.liner = LinerTouch(self.update_keyboard, self.tap_key)
+        self.liner = LinerTouch(self.update_keyboard, self.tap_action, False)
+        self.liner.pinch_update_callback = self.pinch_action
+        self.liner.pinch_start_callback = self.on_canvas_right_click
+        self.liner.pinch_motion_callback = self.on_canvas_drag
+        self.liner.pinch_end_callback = self.on_canvas_right_release
         self.current_scale = 1.0
         self.pointer_x = 0  # 外部ポインタのX座標（キーボード座標系）
         self.pointer_y = 0  # 外部ポインタのY座標（キーボード座標系）
@@ -86,7 +90,7 @@ class KanaKeyboard:
         self.canvas.bind(
             "<ButtonRelease-3>", self.on_canvas_right_release
         )  # 右クリックリリースイベント
-        self.master.bind("<Motion>", self.on_mouse_move)  # マウス移動イベント
+        # self.master.bind("<Motion>", self.on_mouse_move)  # マウス移動イベント
 
         self.create_keyboard()
         self.draw_pointer()
@@ -118,13 +122,16 @@ class KanaKeyboard:
                 tags=("kana_text", kana),
             )
 
-    def draw_pointer(self):
+    def draw_pointer(self, x=None, y=None):
         """赤い点のポインタを描画する"""
         pointer_size = 10 * self.current_scale
         # キャンバス座標に変換
-        canvas_x, canvas_y = self.keyboard_to_canvas_coordinates(
-            self.pointer_x, self.pointer_y
-        )
+        if x is None or y is None:
+            canvas_x, canvas_y = self.keyboard_to_canvas_coordinates(
+                self.pointer_x, self.pointer_y
+            )
+        else:
+            canvas_x, canvas_y = x, y
 
         self.canvas.delete("pointer")  # 既存のポインタを削除
         self.canvas.create_oval(
@@ -156,17 +163,38 @@ class KanaKeyboard:
             if kana:
                 print(f"入力: {kana}")
 
-    def on_canvas_right_click(self, event):
+    def on_canvas_right_click(self, event=None):
         """右クリック時の処理"""
         self.is_dragging = True
-        self.last_x = event.x
-        self.last_y = event.y
+        if event is None:
+            sensor_width = self.liner.sensor_num * self.liner.sensor_num
+            sensor_height = self.liner.sensor_height
+            pos = self.liner.center_pos
+            width = root.winfo_width()
+            height = root.winfo_height()
+            x = pos[0] / sensor_width * width
+            y = pos[1] / sensor_height * height
+        else:
+            x, y = event.x, event.y
+        self.last_x = x
+        self.last_y = y
 
-    def on_canvas_drag(self, event):
+    def on_canvas_drag(self, event=None):
         """キャンバスドラッグ時の処理"""
         if self.is_dragging:
-            dx = event.x - self.last_x
-            dy = event.y - self.last_y
+            if event is None:
+                sensor_width = self.liner.sensor_num * self.liner.sensor_num
+                sensor_height = self.liner.sensor_height
+                pos = self.liner.center_pos
+                width = root.winfo_width()
+                height = root.winfo_height()
+                x = pos[0] / sensor_width * width
+                y = pos[1] / sensor_height * height
+            else:
+                x, y = event.x, event.y
+
+            dx = x - self.last_x
+            dy = y - self.last_y
 
             self.offset_x += dx
             self.offset_y += dy
@@ -177,10 +205,10 @@ class KanaKeyboard:
 
             self.draw_pointer()
 
-            self.last_x = event.x
-            self.last_y = event.y
+            self.last_x = x
+            self.last_y = y
 
-    def on_canvas_right_release(self, event):
+    def on_canvas_right_release(self, event=None):
         """右クリックリリース時の処理"""
         self.is_dragging = False
 
@@ -261,6 +289,83 @@ class KanaKeyboard:
             self.pointer_x = col
             self.pointer_y = row
             self.draw_pointer()
+
+    def update_keyboard(self):
+        """ポインタの移動イベント"""
+        estimated_data = self.liner.estimated_data
+        sensor_width = self.liner.sensor_num * self.liner.sensor_num
+        sensor_height = self.liner.sensor_height
+
+        if len(estimated_data) == 1:
+            pos = estimated_data[0]
+            width = root.winfo_width()
+            height = root.winfo_height()
+            canvas_x = pos[0] / sensor_width * width
+            canvas_y = pos[1] / sensor_height * height
+
+            # キャンバス座標からキーボード座標に変換
+            col, row = self.canvas_to_keyboard_coordinates(canvas_x, canvas_y)
+
+            # 範囲外の場合は更新しない
+            if (col, row) in self.kana_map:
+                self.pointer_x = col
+                self.pointer_y = row
+                self.draw_pointer(canvas_x, canvas_y)
+        else:
+            return
+
+    def tap_action(self):
+        estimated_data = self.liner.estimated_data
+        sensor_width = self.liner.sensor_num * self.liner.sensor_num
+        sensor_height = self.liner.sensor_height
+
+        if len(estimated_data) == 1:
+            pos = estimated_data[0]
+            width = root.winfo_width()
+            height = root.winfo_height()
+            canvas_x = pos[0] / sensor_width * width
+            canvas_y = pos[1] / sensor_height * height
+        if not self.is_dragging:
+            # canvas座標からキーボード座標に変換
+            col, row = self.canvas_to_keyboard_coordinates(canvas_x, canvas_y)
+            kana = self.kana_map.get((col, row))
+
+            if kana:
+                print(f"入力: {kana}")
+        pass
+
+    def move_action(self, x_y):
+        """ムーブジェスチャイベント"""
+        pass
+
+    def pinch_action(self, dist):
+        """ピンチジェスチャイベント"""
+        # ホイールの方向を判定
+        # 何ミリごとに一回分とするか、反復式
+        # gap = 10
+        if -5 < dist < 5:
+            return
+        scale_factor = 1.1 ** (dist / -3)
+        # if factor > 0:
+        #     for i in range(0, factor, gap):
+        #         scale_factor * 0.9
+        # elif factor < 0:
+        #     for i in range(0, factor, -gap):
+        #         scale_factor * 1.1
+        estimated_data = self.liner.estimated_data
+        sensor_width = self.liner.sensor_num * self.liner.sensor_num
+        sensor_height = self.liner.sensor_height
+        if len(estimated_data) != 2:
+            raise IndexError
+            return
+        # スクロールの中心位置
+
+        width = root.winfo_width()
+        height = root.winfo_height()
+        center_x = self.liner.center_pos[0] / sensor_width * width
+        center_y = self.liner.center_pos[1] / sensor_height * height
+        self.draw_pointer(center_x, center_y)
+        self.scale_keyboard(scale_factor, center_x, center_y)
 
 
 if __name__ == "__main__":

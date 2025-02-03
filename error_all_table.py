@@ -135,8 +135,8 @@ table.set_fontsize(10)
 # セルの高さを自動調整
 table.auto_set_column_width(col=list(range(len(collabels))))
 for (row, col), cell in table.get_celld().items():
-    if row == 0 or col == -1:
-        continue  # Header and row labels are skipped
+    # if row == 0 or col == -1:
+        # continue  # Header and row labels are skipped
     cell.set_height(0.15)  # 高さをさらに調整
 
 plt.show()

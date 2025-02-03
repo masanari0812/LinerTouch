@@ -64,9 +64,15 @@ class LinerTouch:
         self.plot_graph = plot_graph
         # タップフラグ
         self.tap_flag = False
+        self.pinch_dist = None
 
         self.update_callback = update_callback
         self.tap_callback = tap_callback
+        self.pinch_start_callback = None
+        self.pinch_end_callback = None
+        # pinch_motionとpinch_updateは同じもの
+        self.pinch_motion_callback = None
+        self.pinch_update_callback = None
         self.plot_data_thread = None
         self.ax = None
         self.past_data = {
@@ -75,10 +81,11 @@ class LinerTouch:
             "len": 0,
         }
         threading.Thread(target=self.update_get_data).start()
-        threading.Thread(target=self.update_plot_data).start()
-        time.sleep(0.1)
+        if self.plot_graph:
+            threading.Thread(target=self.update_plot_data).start()
 
     def update_get_data(self):
+
         self.ser.reset_input_buffer()
         while True:
             try:
@@ -136,6 +143,7 @@ class LinerTouch:
                 if self.get_pastdata("len") == self.past_data_num:
                     # タッチ検出処理
                     self.get_touch()
+                    self.get_pinch()
             self.prev_range_data = self.range_data
             self.add_pastdata(
                 estimated_data=self.estimated_data, actual_data=self.range_data
@@ -455,7 +463,7 @@ class LinerTouch:
                 break
 
     def plot_data(self):
-        if self.plot_graph and self.ready:
+        if self.ready:
             if self.ax is None:
                 """
                 matplotlibのグラフを初期化する関数。
@@ -540,6 +548,7 @@ class LinerTouch:
                 if now_range_data != []:
                     self.tap_flag = False
                     logger.info("タッチ")
+                    # 冗長な条件式
                     if self.tap_callback:
                         self.tap_callback()
                 if now_time - self.hold_start > self.release_threshold:
@@ -549,9 +558,59 @@ class LinerTouch:
             else:
                 if now_range_data == [] and prev_range_data != []:
                     self.hold_start = now_time
-                    self.hold_data = self.estimated_data
+                    past_estimated_data = self.get_pastdata("estimated_data")[1]
+                    if len(past_estimated_data) != 1:
+                        logger.error("過去の推測値データの要素数がヘン")
+                        return
+                    self.hold_data = past_estimated_data
                     logger.info("リリース")
                     self.tap_flag = True
+
+    @timeit
+    # 指のピンチ検知
+    def get_pinch(self):
+        if self.pinch_update_callback != None:
+            if len(self.estimated_data) == 2:
+                now_estimated_data = self.estimated_data
+                past_estimated_data = self.get_pastdata("estimated_data")[0]
+                # ピンチ開始時の処理
+                if (
+                    self.pinch_dist == None
+                    or len(now_estimated_data) == 2
+                    and len(past_estimated_data) != 2
+                ):
+                    self.pinch_dist = LinerTouch.get_euclid_dist(now_estimated_data)
+                    self.center_pos = LinerTouch.get_mid_pos(now_estimated_data)
+                    self.pinch_start_callback()
+                    logger.info("ピンチスタート")
+                else:
+                    if self.pinch_dist == None:
+                        return
+                    now_dist = LinerTouch.get_euclid_dist(now_estimated_data)
+                    self.pinch_update_callback(self.pinch_dist - now_dist)
+
+                    self.center_pos = LinerTouch.get_mid_pos(now_estimated_data)
+                    self.pinch_motion_callback()
+                    self.pinch_dist = now_dist
+            else:
+                past_estimated_data = self.get_pastdata("estimated_data")[0]
+                if len(past_estimated_data) == 2:
+                    self.pinch_end_callback()
+
+    def get_euclid_dist(data):
+        pos0 = data[0]
+        pos1 = data[1]
+        dist = np.sqrt((pos0[0] - pos1[0]) ** 2 + (pos0[1] - pos1[1]) ** 2)
+        return dist
+
+    def get_mid_pos(data):
+        pos0 = data[0]
+        pos1 = data[1]
+        pos = [
+            (pos0[0] + pos1[0]) / 2,
+            (pos0[1] + pos1[1]) / 2,
+        ]
+        return pos
 
     # @timeit
     # def calculate_intersections(self, range_data):
