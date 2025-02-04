@@ -59,14 +59,16 @@ class KanaKeyboard:
             (9, 1): "を",
             (9, 2): "ん",
         }
+        # キーの座標を (col, row) に変換（元の (row, col) から入れ替え）
+        self.kana_map = {(col, row): kana for (row, col), kana in self.kana_map.items()}
         self.liner = LinerTouch(self.update_keyboard, self.tap_action, False)
         self.liner.pinch_update_callback = self.pinch_action
         self.liner.pinch_start_callback = self.on_canvas_right_click
         self.liner.pinch_motion_callback = self.on_canvas_drag
         self.liner.pinch_end_callback = self.on_canvas_right_release
         self.current_scale = 1.0
-        self.pointer_x = 0  # 外部ポインタのX座標（キーボード座標系）
-        self.pointer_y = 0  # 外部ポインタのY座標（キーボード座標系）
+        self.pointer_x = 0  # キーボード座標系でのX
+        self.pointer_y = 0  # キーボード座標系でのY
         self.canvas_width = 400
         self.canvas_height = 300
         self.button_width = 40
@@ -74,7 +76,7 @@ class KanaKeyboard:
         self.key_margin = 5
         self.offset_x = 0  # キャンバスのスクロールオフセット X
         self.offset_y = 0  # キャンバスのスクロールオフセット Y
-        self.is_dragging = False  # ドラッグ中かどうかを判定するフラグ
+        self.is_dragging = False  # ドラッグ中かどうか
 
         self.canvas = tk.Canvas(
             master, width=self.canvas_width, height=self.canvas_height, bg="white"
@@ -82,15 +84,10 @@ class KanaKeyboard:
         self.canvas.pack()
 
         self.canvas.bind("<MouseWheel>", self.on_mousewheel)
-        self.canvas.bind("<Button-1>", self.on_canvas_left_click)  # 左クリックイベント
-        self.canvas.bind("<Button-3>", self.on_canvas_right_click)  # 右クリックイベント
-        self.canvas.bind(
-            "<B3-Motion>", self.on_canvas_drag
-        )  # 右クリックドラッグイベント
-        self.canvas.bind(
-            "<ButtonRelease-3>", self.on_canvas_right_release
-        )  # 右クリックリリースイベント
-        # self.master.bind("<Motion>", self.on_mouse_move)  # マウス移動イベント
+        self.canvas.bind("<Button-1>", self.on_canvas_left_click)
+        self.canvas.bind("<Button-3>", self.on_canvas_right_click)
+        self.canvas.bind("<B3-Motion>", self.on_canvas_drag)
+        self.canvas.bind("<ButtonRelease-3>", self.on_canvas_right_release)
 
         self.create_keyboard()
         self.draw_pointer()
@@ -112,7 +109,7 @@ class KanaKeyboard:
                 scaled_y + scaled_height + self.offset_y,
                 fill="lightblue",
                 outline="black",
-                tags=("kana_button", kana),  # タグを追加
+                tags=("kana_button", kana),
             )
             self.canvas.create_text(
                 scaled_x + scaled_width / 2 + self.offset_x,
@@ -125,7 +122,6 @@ class KanaKeyboard:
     def draw_pointer(self, x=None, y=None):
         """赤い点のポインタを描画する"""
         pointer_size = 10 * self.current_scale
-        # キャンバス座標に変換
         if x is None or y is None:
             canvas_x, canvas_y = self.keyboard_to_canvas_coordinates(
                 self.pointer_x, self.pointer_y
@@ -133,7 +129,7 @@ class KanaKeyboard:
         else:
             canvas_x, canvas_y = x, y
 
-        self.canvas.delete("pointer")  # 既存のポインタを削除
+        self.canvas.delete("pointer")
         self.canvas.create_oval(
             canvas_x - pointer_size / 2,
             canvas_y - pointer_size / 2,
@@ -143,23 +139,45 @@ class KanaKeyboard:
             tags="pointer",
         )
 
-    def input_kana(self):
-        """ポインタ位置の文字を入力する"""
-        kana = self.kana_map.get((self.pointer_x, self.pointer_y))
-        if kana:
-            print(
-                f"入力: {kana}"
-            )  # 入力された文字をコンソールに出力（必要に応じてテキストボックス等に変更）
+    # ＝＝＝＝＝ 新規追加：オフセットを制限する関数 ＝＝＝＝＝
+    def clamp_offset(self):
+        """キーボードが画面内に収まるように、offset_x, offset_y を制限する"""
+        # キーボード全体のサイズ（未スケール）
+        max_col = max(col for col, row in self.kana_map.keys())
+        max_row = max(row for col, row in self.kana_map.keys())
+        keyboard_unscaled_width = self.key_margin + max_col * (self.button_width + self.key_margin) + self.button_width
+        keyboard_unscaled_height = self.key_margin + max_row * (self.button_height + self.key_margin) + self.button_height
+
+        # スケール後のサイズ
+        keyboard_width_scaled = keyboard_unscaled_width * self.current_scale
+        keyboard_height_scaled = keyboard_unscaled_height * self.current_scale
+
+        # 横方向
+        if keyboard_width_scaled <= self.canvas_width:
+            # キーボードがキャンバスより小さい場合は中央に配置
+            self.offset_x = (self.canvas_width - keyboard_width_scaled) / 2
+        else:
+            # キーボードが大きい場合は、ドラッグで外に出ないように制限
+            min_offset_x = self.canvas_width - keyboard_width_scaled
+            max_offset_x = 0
+            self.offset_x = min(max(self.offset_x, min_offset_x), max_offset_x)
+
+        # 縦方向
+        if keyboard_height_scaled <= self.canvas_height:
+            self.offset_y = (self.canvas_height - keyboard_height_scaled) / 2
+        else:
+            min_offset_y = self.canvas_height - keyboard_height_scaled
+            max_offset_y = 0
+            self.offset_y = min(max(self.offset_y, min_offset_y), max_offset_y)
+    # ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
 
     def on_canvas_left_click(self, event):
         """左クリック時の処理"""
         if not self.is_dragging:
-            # canvas座標からキーボード座標に変換
             canvas_x = event.x
             canvas_y = event.y
             col, row = self.canvas_to_keyboard_coordinates(canvas_x, canvas_y)
             kana = self.kana_map.get((col, row))
-
             if kana:
                 print(f"入力: {kana}")
 
@@ -169,7 +187,7 @@ class KanaKeyboard:
         if event is None:
             sensor_width = self.liner.sensor_num * self.liner.sensor_num
             sensor_height = self.liner.sensor_height
-            pos = self.liner.center_pos
+            pos = self.liner.estimated_data[0]
             width = root.winfo_width()
             height = root.winfo_height()
             x = pos[0] / sensor_width * width
@@ -185,7 +203,7 @@ class KanaKeyboard:
             if event is None:
                 sensor_width = self.liner.sensor_num * self.liner.sensor_num
                 sensor_height = self.liner.sensor_height
-                pos = self.liner.center_pos
+                pos = self.liner.estimated_data[0]
                 width = root.winfo_width()
                 height = root.winfo_height()
                 x = pos[0] / sensor_width * width
@@ -199,10 +217,12 @@ class KanaKeyboard:
             self.offset_x += dx
             self.offset_y += dy
 
+            # 追加：オフセットをクランプしてキーボードが見える範囲に留める
+            self.clamp_offset()
+
             self.canvas.delete("kana_button")
             self.canvas.delete("kana_text")
             self.create_keyboard()
-
             self.draw_pointer()
 
             self.last_x = x
@@ -213,12 +233,7 @@ class KanaKeyboard:
         self.is_dragging = False
 
     def scale_keyboard(self, scale_factor, center_x, center_y):
-        """キーボードを拡大縮小する
-        scale_factor: 拡大率
-        center_x: 拡大の中心 X 座標 (キャンバス座標系)
-        center_y: 拡大の中心 Y 座標 (キャンバス座標系)
-        """
-        # 拡大の中心がキーボードの外側にならないように調整
+        """キーボードを拡大縮小する"""
         min_x = (self.button_width + self.key_margin) * self.current_scale / 2
         max_x = self.canvas_width - min_x
         min_y = (self.button_height + self.key_margin) * self.current_scale / 2
@@ -226,12 +241,17 @@ class KanaKeyboard:
 
         center_x = max(min_x, min(center_x, max_x))
         center_y = max(min_y, min(center_y, max_y))
-
+        upper_limit = 10
+        lower_limit = 0.8
         self.current_scale *= scale_factor
+        self.current_scale = max(lower_limit, self.current_scale)
+        self.current_scale = min(self.current_scale, upper_limit)
 
-        # 拡大/縮小の中心を基準にオフセットを調整
         self.offset_x = center_x - (center_x - self.offset_x) * scale_factor
         self.offset_y = center_y - (center_y - self.offset_y) * scale_factor
+
+        # 追加：ズーム後もオフセットをクランプ
+        self.clamp_offset()
 
         self.canvas.delete("kana_button")
         self.canvas.delete("kana_text")
@@ -240,16 +260,13 @@ class KanaKeyboard:
 
     def on_mousewheel(self, event):
         """マウスホイールイベント"""
-        # ホイールの方向を判定
         if event.delta > 0:
-            scale_factor = 1.1  # 拡大
+            scale_factor = 1.1
         else:
-            scale_factor = 0.9  # 縮小
+            scale_factor = 0.9
 
-        # ホイールの中心位置
         center_x = event.x
         center_y = event.y
-
         self.scale_keyboard(scale_factor, center_x, center_y)
 
     def keyboard_to_canvas_coordinates(self, key_x, key_y):
@@ -277,21 +294,15 @@ class KanaKeyboard:
         return col, row
 
     def on_mouse_move(self, event):
-        """マウスポインタの移動イベント"""
         canvas_x = event.x
         canvas_y = event.y
-
-        # キャンバス座標からキーボード座標に変換
         col, row = self.canvas_to_keyboard_coordinates(canvas_x, canvas_y)
-
-        # 範囲外の場合は更新しない
         if (col, row) in self.kana_map:
             self.pointer_x = col
             self.pointer_y = row
             self.draw_pointer()
 
     def update_keyboard(self):
-        """ポインタの移動イベント"""
         estimated_data = self.liner.estimated_data
         sensor_width = self.liner.sensor_num * self.liner.sensor_num
         sensor_height = self.liner.sensor_height
@@ -303,10 +314,7 @@ class KanaKeyboard:
             canvas_x = pos[0] / sensor_width * width
             canvas_y = pos[1] / sensor_height * height
 
-            # キャンバス座標からキーボード座標に変換
             col, row = self.canvas_to_keyboard_coordinates(canvas_x, canvas_y)
-
-            # 範囲外の場合は更新しない
             if (col, row) in self.kana_map:
                 self.pointer_x = col
                 self.pointer_y = row
@@ -326,40 +334,25 @@ class KanaKeyboard:
             canvas_x = pos[0] / sensor_width * width
             canvas_y = pos[1] / sensor_height * height
         if not self.is_dragging:
-            # canvas座標からキーボード座標に変換
             col, row = self.canvas_to_keyboard_coordinates(canvas_x, canvas_y)
             kana = self.kana_map.get((col, row))
-
             if kana:
                 print(f"入力: {kana}")
         pass
 
     def move_action(self, x_y):
-        """ムーブジェスチャイベント"""
         pass
 
     def pinch_action(self, dist):
-        """ピンチジェスチャイベント"""
-        # ホイールの方向を判定
-        # 何ミリごとに一回分とするか、反復式
-        # gap = 10
         if -5 < dist < 5:
             return
         scale_factor = 1.1 ** (dist / -3)
-        # if factor > 0:
-        #     for i in range(0, factor, gap):
-        #         scale_factor * 0.9
-        # elif factor < 0:
-        #     for i in range(0, factor, -gap):
-        #         scale_factor * 1.1
         estimated_data = self.liner.estimated_data
         sensor_width = self.liner.sensor_num * self.liner.sensor_num
         sensor_height = self.liner.sensor_height
         if len(estimated_data) != 2:
             raise IndexError
             return
-        # スクロールの中心位置
-
         width = root.winfo_width()
         height = root.winfo_height()
         center_x = self.liner.center_pos[0] / sensor_width * width
@@ -370,8 +363,8 @@ class KanaKeyboard:
 
 if __name__ == "__main__":
     logging.basicConfig(
-        level=logging.INFO,  # INFOレベルを含む全てのログを表示
-        format="[%(levelname)s] %(name)s: %(message)s",  # フォーマットの設定
+        level=logging.INFO,
+        format="[%(levelname)s] %(name)s: %(message)s",
     )
     root = tk.Tk()
     keyboard = KanaKeyboard(root)

@@ -54,7 +54,7 @@ class LinerTouch:
         # センサの測定可能距離/センサの横幅=sensor_ratio
         self.sensor_ratio = 10
         # センサの最大測定距離(mm単位)
-        self.sensor_height = 200
+        self.sensor_height = 100
         # 指のタッチ時間の閾値(sec単位)
         self.release_threshold = 0.5
         # 保存するデータの数
@@ -137,13 +137,13 @@ class LinerTouch:
             else:
                 pass
             if self.ready:
-                # 更新コールバック
-                if self.update_callback:
-                    self.update_callback()
                 if self.get_pastdata("len") == self.past_data_num:
                     # タッチ検出処理
                     self.get_touch()
                     self.get_pinch()
+                    # 更新コールバック
+                if self.update_callback:
+                    self.update_callback()
             self.prev_range_data = self.range_data
             self.add_pastdata(
                 estimated_data=self.estimated_data, actual_data=self.range_data
