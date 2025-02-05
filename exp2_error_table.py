@@ -13,9 +13,8 @@ logging.basicConfig(
     format="[%(levelname)s] %(name)s:%(lineno)d:%(message)s",
 )
 
-# 論文などでよく使われる日本語フォント（IPAexGothic）の指定
 plt.rcParams['font.family'] = 'IPAexGothic'
-plt.rcParams['axes.unicode_minus'] = False  # マイナス記号の文字化け対策
+plt.rcParams['axes.unicode_minus'] = False
 
 def convert_csv_to_numpy_array(arg0, arg1, arg2=0):
     result = []
@@ -66,9 +65,27 @@ def convert_csv_to_numpy_array(arg0, arg1, arg2=0):
 
 # 手入力の最大エラー率（例：36.67%）を用いて、成功率の下限を設定
 manual_max_error = 36.67  
-min_success = 100 - manual_max_error  # 63.33%
+min_success = 100 - manual_max_error  # 現状は63.33%
 
-# 表のデータ生成（ここでは、各セルの1番目の値を成功率に置き換え）
+# === カスタム正規化クラス ===
+class CustomNormalize(mcolors.Normalize):
+    """
+    デフォルトの正規化結果 (0～1) を [lower, upper] の範囲に再マッピングする。
+    lower=0 だと元の最小値に対応し、upper=1 だと元の最大値に対応するが、
+    これらを変更することで端点の色合いを調整できる。
+    """
+    def __init__(self, vmin=None, vmax=None, lower=0.0, upper=1.0, clip=False):
+        super().__init__(vmin, vmax, clip)
+        self.lower = lower
+        self.upper = upper
+
+    def __call__(self, value, clip=None):
+        # まず通常のNormalizeで 0～1 にする
+        normalized = super().__call__(value, clip)
+        # その後 [lower, upper] の範囲に線形マッピング
+        return self.lower + normalized * (self.upper - self.lower)
+
+# 表のデータ生成
 data = []
 success_rates = []  # 成功率を格納するリスト
 distance_means = []
@@ -82,7 +99,6 @@ for idx1 in range(20, 60, 10):  # arg1 を縦方向に
         if idx1 == 20:
             collabels.append(f"{idx0}mm")
         error_rate, error_count, distance_mean = convert_csv_to_numpy_array(idx0, idx1)
-        # error_rate をもとに成功率を計算（error_rate=0%なら100%、10%なら90%）
         if error_rate is not None:
             success_rate = 100 - error_rate
         else:
@@ -94,30 +110,27 @@ for idx1 in range(20, 60, 10):  # arg1 を縦方向に
             distance_means.append(distance_mean)
     data.append(temp)
 
-# 色のスケールの定義
-# 成功率が 100% で薄く、63.33%（=100-36.67）のときに濃い赤になるように設定
-norm_success = mcolors.Normalize(vmin=min_success, vmax=100)
-cmap_success = cm.Reds_r  # 反転した Reds を使用
+# カラーマップの定義
+# 成功率：100%なら白（極薄）、下限（現状63.33%）よりは少し明るめにするため [0.3, 1.0] の範囲にマッピング
+norm_success = CustomNormalize(vmin=min_success, vmax=100, lower=0.3, upper=1.0)
+cmap_success = cm.Reds_r  # reversed Reds: 0→濃い赤、1→薄い赤(白寄り)
 
-norm_distance = mcolors.Normalize(vmin=min(distance_means), vmax=max(distance_means))
+# 距離：最小値は（通常）0が白、最大値は最大値に対して1だと濃い青になってしまうので、最大値を
+# 1未満、例えば0.8にすることで若干薄くする
+norm_distance = CustomNormalize(vmin=min(distance_means), vmax=max(distance_means), lower=0.0, upper=0.8)
 cmap_distance = cm.Blues
 
 # テーブル作成用の図・軸設定
 fig, ax = plt.subplots()
 
-# 表の上部にタイトルとして配置（太字）
 fig.suptitle("デバイスと円柱A、BのY軸方向の距離",
              fontsize=14, fontweight='bold', y=0.80)
-
-# 表の左側に縦書きで配置（rotation=90 で文字を90度回転）
 fig.text(0.1, 0.5, "円柱A, B間のX軸方向の距離",
          rotation=90, ha="center", va="center",
          fontsize=15, fontweight='bold')
-
 ax.axis("off")
 
-# セルデータのフォーマット（2行分のデータ）
-# 1行目：成功率、2行目：平均距離
+# セルデータのフォーマット（1行目：成功率、2行目：平均距離）
 cell_text = []
 for row in data:
     cell_row1 = []
@@ -128,7 +141,6 @@ for row in data:
     cell_text.append(cell_row1)
     cell_text.append(cell_row2)
 
-# テーブル作成
 table = ax.table(
     cellText=cell_text,
     colLabels=collabels,
@@ -137,32 +149,23 @@ table = ax.table(
     cellLoc="center",
 )
 
-# セルの背景色の設定
-# 成功率のセルに対して、成功率が低い（＝エラー率が高い）ときに濃い赤になるように
+# セルごとに背景色を設定
+# 成功率のセル：norm_success によって 100% が 1（白寄り）、下限側は 0.3（やや赤味）
 for i, row in enumerate(data):
     for j, (success_rate, _, distance_mean) in enumerate(row):
         if success_rate is not None:
-            # norm_success(success_rate) は 100 のとき 1, 63.33 のとき 0
-            color = cmap_success(norm_success(success_rate) * 0.8)
+            color = cmap_success(norm_success(success_rate))
             table[i * 2 + 1, j].set_facecolor(color)
         if distance_mean is not None:
-            color = cmap_distance(norm_distance(distance_mean) * 0.8)
+            color = cmap_distance(norm_distance(distance_mean))
             table[i * 2 + 2, j].set_facecolor(color)
 
-# レイアウト調整（左側に余白を確保）
 plt.subplots_adjust(left=0.2, top=0.85)
-
-# テーブル書式の設定
 table.auto_set_font_size(False)
 table.set_fontsize(10)
 
-# 各セルのテキストを太字に設定
 for (row, col), cell in table.get_celld().items():
     cell.get_text().set_fontweight('bold')
-
-# セルの高さ調整
-table.auto_set_column_width(col=list(range(len(collabels))))
-for (row, col), cell in table.get_celld().items():
     cell.set_height(0.08)
 
 plt.show()

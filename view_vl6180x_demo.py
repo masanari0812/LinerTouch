@@ -2,7 +2,7 @@ import tkinter as tk
 import serial
 
 # シリアルポートの設定
-port = "COM4"  # 実際のシリアルポートに合わせてください
+port = "COM9"  # 実際のシリアルポートに合わせてください
 baudrate = 115200  # ボーレートも合わせてください
 
 # Tkinterウィンドウの作成
