@@ -115,7 +115,7 @@ for i, row in enumerate(data):
     if row[0] is not None:
         # norm_success(row[0]) は 100 のとき 1、63.33 のとき 0
         # cmap_success（Reds_r）を使うと、0で濃い赤、1で薄い赤が得られる
-        color = cmap_success(norm_success(row[0]))  # 0.8は必要に応じて調整
+        color = cmap_success(norm_success(row[0]) )  # 0.8は必要に応じて調整
         table[1, i].set_facecolor(color)
     # 平均距離のセル（cell_text の2行目、テーブル上は行インデックス 2）
     if row[2] is not None:

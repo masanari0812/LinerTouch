@@ -137,13 +137,13 @@ class LinerTouch:
             else:
                 pass
             if self.ready:
+                # 更新コールバック
+                if self.update_callback:
+                    self.update_callback()
                 if self.get_pastdata("len") == self.past_data_num:
                     # タッチ検出処理
                     self.get_touch()
                     self.get_pinch()
-                    # 更新コールバック
-                if self.update_callback:
-                    self.update_callback()
             self.prev_range_data = self.range_data
             self.add_pastdata(
                 estimated_data=self.estimated_data, actual_data=self.range_data
